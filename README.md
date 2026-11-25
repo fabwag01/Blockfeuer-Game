@@ -10,6 +10,8 @@ Ein 3D-Shooter im Stil von CS, der komplett im Browser läuft. Über **GitHub Pa
 - **Grafik:** Low-Poly-Stil mit flächigen Materialien, Echtzeit-Schatten, spiegelnde Fenster, Himmel mit Wolken, drei Qualitätsstufen (Standard: Mittel)
 - **Utility:** HE-, Blend- und Rauchgranate, Medipacks
 - **Belohnung:** Wer eine Runde gewinnt, öffnet ein Glückspaket mit einem zufälligen Waffen-Skin
+- **Lobby:** Nach dem Erstellen landet ihr in einer Lobby mit Spiel-Code, Spielerliste, Modus, Karte, Anzahl und Stärke der Bots – erst der Host startet das Spiel. Nach jeder Runde geht es dorthin zurück.
+- **Schießstand:** Alle Waffen mit allen Aufsätzen ausprobieren, Scheiben auf 10/25/50 m und eine 45-Sekunden-Challenge mit fahrenden und aufklappenden Zielscheiben (Rekord wird gespeichert)
 - **Außerdem:** Scoreboard (Tab), Killfeed, Chat, Kopfschüsse, Bots in drei Stärken, bis zu 12 Spieler
 
 ---
@@ -39,10 +41,16 @@ Du brauchst nur einen kostenlosen GitHub-Account.
 ## 2. Mit Freunden spielen
 
 1. **Einer erstellt das Spiel:** Seite öffnen, Namen eingeben, **Spiel erstellen**. Der Browser dieser Person ist jetzt der Host (er rechnet Treffer, Bots und Runden).
-2. **Link teilen:** Im Spiel mit **Esc** das Menü öffnen. Unten steht der **Link für Freunde** (z. B. `…/blockfeuer/?join=k7m2x`) – mit **Kopieren** in Discord/WhatsApp schicken. Den fünfstelligen Code kann man auch im Startmenü bei „Code eines Freundes“ eintippen.
-3. **Freunde treten bei:** Link öffnen, Namen eingeben, **Beitreten**.
+2. **Lobby:** Oben steht groß der **Code** und der Einladungslink (**Link kopieren** → in Discord/WhatsApp schicken). Der Host stellt Spielmodus, Karte, Anzahl der Bots und deren Stärke ein; alle sehen die Spielerliste (im Modus „Punkt erobern“ mit Teams). Mit **Loadout vorbereiten** kann jeder schon seine Waffen wählen.
+3. **Freunde treten bei:** Link öffnen (oder im Startmenü den Code eintippen), Namen eingeben, **Beitreten** – sie erscheinen sofort in der Lobby.
+4. **Spiel starten:** Der Host drückt **Spiel starten**. Nach Rundenende geht es automatisch zurück in die Lobby; der Host kann auch jederzeit über **Esc → Zurück zur Lobby** abbrechen. Verlässt der Host das Spiel, ist es für alle vorbei; beim eigenen Node-Server übernimmt der nächste Spieler die Lobby.
 
-**Allein gegen Bots** startet eine Runde nur für dich. Willst du später doch Freunde dazuholen, drückst du im Esc-Menü auf **Online stellen**.
+**Allein gegen Bots** öffnet dieselbe Lobby nur für dich. Willst du doch Freunde dazuholen, drückst du dort auf **Online stellen**.
+
+**Schießstand** startet sofort einen Übungsplatz nur für dich (kein Internet nötig):
+- **B** öffnet die Waffenwahl – Primär- und Sekundärwaffe samt Aufsätzen wechseln sofort.
+- Feste Scheiben stehen auf 10 m (gelbe Marke), 25 m (orange) und 50 m (rot); ein Treffer zeigt Ring und Entfernung.
+- **E** startet die **Zielscheiben-Challenge**: 45 Sekunden lang fahren Scheiben quer über die Bahnen oder klappen kurz hoch. Punkte gibt es nach Ring (Volltreffer in der Mitte am meisten), Entfernung und Bewegung. Oben stehen Zeit, Punkte, Treffer/Schüsse und dein Rekord (wird im Browser gespeichert).
 
 Gut zu wissen:
 - Die Verbindung läuft direkt zwischen den Browsern (WebRTC). Nur zum Kennenlernen der Browser wird kurz der kostenlose öffentliche Vermittlungsdienst von [PeerJS](https://peerjs.com) benutzt; die Bibliothek wird beim Erstellen/Beitreten von jsDelivr geladen.
@@ -67,7 +75,8 @@ Gut zu wissen:
 | 4 / 5 / 6 | HE- / Blend- / Rauchgranate (G wechselt durch) |
 | Tab | Scoreboard |
 | Enter | Chat |
-| Esc | Menü: Loadout, Karte & Modus, Bots, Maus, Sichtfeld, Lautstärke, Grafik, Einladungslink |
+| E / B | Schießstand: Challenge starten / Waffe wählen |
+| Esc | Menü: Loadout, Maus, Sichtfeld, Lautstärke, Grafik, Vollbild, zurück zur Lobby, Einladungslink |
 
 **Strg+W:** Wer geduckt vorwärts läuft, drückt Strg+W – das schließt normalerweise den Browser-Tab. Im Spiel fragt der Browser deshalb vorher nach („Seite verlassen?“ → *Abbrechen*). Sicherer ist **Esc → Vollbild**: Im Vollbild sperrt das Spiel die Tastenkombination (Chrome/Edge). Alternativ duckt auch **C**.
 
@@ -108,7 +117,7 @@ Messer-Skins gibt es nur ab Legendär. Das Inventar gehört zum Browser (keine B
 - **Deathmatch:** Wer zuerst 40 Kills hat, gewinnt. Selbstmord kostet einen Kill.
 - **Punkt erobern:** Zwei Teams (Blau startet im Osten, Rot im Westen, Bots werden aufgeteilt, kein Eigenbeschuss). Steht nur ein Team im leuchtenden Ring in der Kartenmitte, erobert es den Punkt in etwa 7 Sekunden (mit mehr Spielern schneller). Ist der Gegner auch im Ring, ist der Punkt umkämpft. Das Team, das den Punkt hält, bekommt 1 Punkt pro Sekunde; 180 Punkte gewinnen. Jeder Spieler des Siegerteams erhält ein Glückspaket.
 - Jeder Kill heilt 30 HP. Nach dem Spawn gibt es 1,8 s Spawnschutz (endet beim ersten eigenen Schuss).
-- Karte und Modus wechselt jeder Spieler über **Esc → Spiel → Neue Runde mit dieser Auswahl**.
+- Karte, Modus und Bots stellt der Host in der Lobby ein.
 
 ## 4. Alternative: eigener Server mit Node.js (optional)
 

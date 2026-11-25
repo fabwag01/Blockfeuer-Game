@@ -147,6 +147,24 @@
   input[type=range] { width: 100%; accent-color: var(--acc); }
   select { font: inherit; background: #0c0e11; color: #fff; border: 1px solid var(--line); padding: 6px 8px; }
   #pause .card { width: min(620px, 94vw); }
+  #lobby { background: radial-gradient(ellipse at 50% 30%, rgba(30, 24, 16, .55), rgba(8, 9, 11, .88)); }
+  .lbcard { width: min(920px, 95vw); }
+  .lbhead { display: flex; align-items: baseline; gap: 16px; } .lbhead h2 { margin: 0; }
+  .lbcode { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; margin: 16px 0 6px; padding: 14px 18px; background: rgba(255, 154, 31, .1); border: 1px solid rgba(255, 154, 31, .35); }
+  .lbcode b { display: block; font-size: 34px; letter-spacing: .25em; color: var(--acc2); font-family: ui-monospace, Consolas, monospace; }
+  .lblinkrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 1; min-width: 0; } .lblinkrow code { overflow-wrap: anywhere; color: var(--dim); font-size: 13px; flex: 1; min-width: 160px; }
+  .lbgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 28px; }
+  @media (max-width: 720px) { .lbgrid { grid-template-columns: minmax(0, 1fr); } }
+  #lbplayers { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+  #lbplayers li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+  #lbplayers li .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  #lbplayers li .tagx { margin-left: auto; font-size: 11px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; }
+  #lbplayers li.me { background: rgba(255, 154, 31, .12); }
+  .lbbots b { min-width: 28px; text-align: center; font-size: 18px; }
+  .lbfoot { margin-top: 18px; align-items: center; } .lbfoot #lbleave { margin-left: auto; }
+  .lbset select:disabled, .lbbots button:disabled { opacity: .55; cursor: default; }
+  #rangehud { position: fixed; left: 50%; top: 44px; transform: translateX(-50%); display: none; gap: 22px; background: rgba(0, 0, 0, .5); padding: 8px 18px; font-size: 15px; font-variant-numeric: tabular-nums; z-index: 3; }
+  #rangehud b { color: var(--acc2); font-size: 20px; }
   #pause .set .row { flex-wrap: nowrap; gap: 8px; } #pause .set button { padding: 7px 10px; font-size: 12px; }
   #pause h2 { margin: 0 0 16px; letter-spacing: .2em; font-size: 20px; }
   #pause h3 { margin-top: 22px; }
@@ -221,6 +239,7 @@
   <div class="hud" id="tag"></div>
   <div class="hud mono" id="stats"></div>
   <div class="hud" id="topbar"></div>
+  <div id="rangehud"><span>Zeit <b id="rgtime">45</b></span><span>Punkte <b id="rgscore">0</b></span><span>Treffer <b id="rghits">0/0</b></span><span>Rekord <b id="rgbest">0</b></span></div>
   <div class="hud" id="cpbar"><b id="cpa" class="ta">0</b><div class="cpmid"><div class="cptrack"><i id="cpfill"></i></div><span id="cpst">Punkt neutral</span></div><b id="cpb" class="tb">0</b></div>
   <div class="hud" id="feed"></div>
   <div class="hud" id="center"><div id="msg"></div><div id="sub"></div></div>
@@ -243,15 +262,17 @@
 <div class="screen on" id="menu">
   <div class="card">
     <h1 class="logo">BLOCK<span>FEUER</span></h1>
-    <div class="tagline" id="tagline">Gun Game · Deathmatch · Im Browser</div>
+    <div class="tagline" id="tagline">Gun Game · Deathmatch · Punkt erobern · Schießstand</div>
     <div class="row">
       <input id="name" type="text" maxlength="16" placeholder="Dein Name" autocomplete="off">
       <button class="go" id="play">Spielen</button>
+      <button id="rangebtn2" style="display:none">Schießstand</button>
     </div>
     <div id="p2p" style="display:none">
       <div class="row">
         <button class="go" id="hostbtn">Spiel erstellen</button>
         <button id="solobtn">Allein gegen Bots</button>
+        <button id="rangebtn">Schießstand</button>
       </div>
       <div class="row joinrow">
         <span class="dim">oder Code eines Freundes:</span>
@@ -276,7 +297,7 @@
           <span><kbd>4</kbd> <kbd>5</kbd> <kbd>6</kbd></span><span>HE-, Blend-, Rauchgranate</span>
           <span><kbd>Tab</kbd></span><span>Scoreboard</span>
           <span><kbd>Enter</kbd></span><span>Chat</span>
-          <span><kbd>Esc</kbd></span><span>Menü (Karte, Modus, Bots, Grafik)</span>
+          <span><kbd>Esc</kbd></span><span>Menü (Grafik, Loadout, zurück zur Lobby)</span>
         </div>
       </div>
       <div>
@@ -285,6 +306,8 @@
           <li>Vor jedem Spawn wählst du dein <b>Loadout</b>: Waffen, Visiere und Aufsätze.</li>
           <li><b>Gun Game:</b> zwei Kills bringen die nächste Waffe, ein Messer-Kill auf der letzten Stufe gewinnt.</li>
           <li><b>Deathmatch:</b> freie Waffenwahl, wer zuerst 40 Kills hat, gewinnt.</li>
+          <li><b>Lobby:</b> Wer ein Spiel erstellt, stellt dort Modus, Karte und Bots ein, teilt den Code und startet.</li>
+          <li><b>Schießstand:</b> alle Waffen testen, E startet die Zielscheiben-Challenge.</li>
           <li><b>Punkt erobern:</b> Team Blau gegen Rot. Steht nur dein Team im Ring in der Mitte, wird der Punkt erobert; gehalten bringt er 1 Punkt pro Sekunde – 180 gewinnen.</li>
           <li>Pro Leben: 1 HE-, 1 Blend-, 1 Rauchgranate. Medipacks liegen auf der Karte.</li>
           <li>Zielen über das Visier macht dich genauer, aber langsamer.</li>
@@ -316,6 +339,33 @@
   <div class="row"><button class="go" id="pkopen">Öffnen</button><button class="go" id="pkequip">Ausrüsten</button><button id="pkclose">Weiter</button></div>
 </div></div>
 
+<div class="screen" id="lobby">
+  <div class="card lbcard">
+    <div class="lbhead"><h2>LOBBY</h2><span id="lbsub" class="dim"></span></div>
+    <div class="lbcode" id="lbcodebox">
+      <div><span class="dim">Code für Freunde</span><b id="lbcode">—</b></div>
+      <div class="lblinkrow"><code id="lblink"></code><button id="lbcopy">Link kopieren</button><button id="lbonline" style="display:none">Online stellen</button></div>
+    </div>
+    <div class="lbgrid">
+      <div>
+        <h3>Spieler <span id="lbcount" class="dim"></span></h3>
+        <ul id="lbplayers"></ul>
+      </div>
+      <div>
+        <h3>Einstellungen</h3>
+        <div class="set lbset">
+          <span>Spielmodus</span><select id="lbmode"></select><span></span>
+          <span>Karte</span><select id="lbmap"></select><span></span>
+          <span>Bots</span><span class="row lbbots"><button id="lbbotdel">−</button><b id="lbbots" class="mono">0</b><button id="lbbotadd">+</button></span><span></span>
+          <span>Bot-Stärke</span><select id="lbskill"><option value="0">Leicht</option><option value="1">Mittel</option><option value="2">Schwer</option></select><span></span>
+        </div>
+        <p id="lbdesc" class="dim"></p>
+      </div>
+    </div>
+    <div class="row lbfoot"><button class="go" id="lbstart">Spiel starten</button><span id="lbwait" class="dim"></span><button id="lblo">Loadout vorbereiten</button><button id="lbleave">Verlassen</button></div>
+  </div>
+</div>
+
 <div class="screen" id="pause">
   <div class="card">
     <h2>PAUSE</h2>
@@ -328,8 +378,8 @@
       <span>Grafik</span><select id="qual"><option value="hoch">Hoch (Schatten)</option><option value="mittel">Mittel</option><option value="niedrig">Niedrig (schnell)</option></select><span></span>
       <span>Zielen (Rechtsklick)</span><select id="adsmode"><option value="halten">Halten</option><option value="umschalten">Umschalten</option></select><span></span>
     </div>
-    <h3>Spiel</h3>
-    <div class="set">
+    <div class="row" id="pausegame"><button id="tolobby">Zurück zur Lobby</button><button id="quit">Hauptmenü</button><span id="pausehint" class="dim"></span></div>
+    <div class="set" style="display:none">
       <span>Karte</span><select id="mapsel"></select><span></span>
       <span>Modus</span><select id="modesel"></select><span></span>
       <span></span><button id="applycfg">Neue Runde mit dieser Auswahl</button><span></span>

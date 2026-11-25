@@ -745,7 +745,8 @@ let NETKIND = '', connecting = false;
 const joinParam = (new URLSearchParams(location.search).get('join') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
 function connect(name, how, code) {
   connecting = true; menuBusy(how);
-  const opts = { map: mapId, mode, bots: how === 'local' ? 4 : 2, log: s => console.log('[Host] ' + s) };
+  const opts = how === 'range' ? { map: 'range', mode: 'range', bots: 0, log: s => console.log('[Host] ' + s) }
+    : { map: 'stadt', mode: 'gungame', bots: how === 'local' ? 4 : 2, log: s => console.log('[Host] ' + s) };
   const p = how === 'server' ? Net.server() : how === 'join' ? Net.join(code) : how === 'host' ? Net.host(opts) : Net.local(opts);
   p.then(sock => {
     ws = sock;
@@ -762,7 +763,7 @@ function connect(name, how, code) {
 function menuBusy(how) {
   const txt = { host: 'Erstelle Spiel und verbinde mit dem Online-Dienst …', join: 'Verbinde mit dem Spiel deines Freundes …', local: 'Starte Spiel …', server: 'Verbinde …' };
   $('netinfo').textContent = how ? txt[how] || '' : '';
-  for (const id of ['play', 'hostbtn', 'solobtn', 'joinbtn']) $(id).disabled = !!how;
+  for (const id of ['play', 'hostbtn', 'solobtn', 'joinbtn', 'rangebtn', 'rangebtn2']) $(id).disabled = !!how;
 }
 function setupMenu(kind) {
   NETKIND = kind;
@@ -770,6 +771,7 @@ function setupMenu(kind) {
   $('play').style.display = srv ? '' : 'none';
   $('p2p').style.display = srv ? 'none' : '';
   $('linkbox').style.display = srv ? '' : 'none';
+  $('rangebtn2').style.display = srv ? '' : 'none';
   if (off) { $('hostbtn').style.display = 'none'; document.querySelector('.joinrow').style.display = 'none'; $('solobtn').className = 'go'; $('solobtn').textContent = 'Spielen'; }
   if (joinParam && !srv && !off) {
     $('joincode').value = joinParam; $('joinbtn').className = 'go'; $('hostbtn').className = '';
@@ -782,7 +784,7 @@ function refreshInvite() {
   $('invite').textContent = srv ? location.origin + '/' : '';
   $('invite2').textContent = l || (Net.mode === 'local' ? 'Noch offline – „Online stellen“ drücken, dann kommen Freunde per Link dazu.' : '');
   $('copy2').style.display = l ? '' : 'none';
-  $('online2').style.display = Net.mode === 'local' && !Net.online && !window.BF_OFFLINE ? '' : 'none';
+  $('online2').style.display = Net.mode === 'local' && mode !== 'range' && !Net.online && !window.BF_OFFLINE ? '' : 'none';
   $('linkbox2').style.display = window.BF_OFFLINE ? 'none' : '';
 }
 function gunPos(pl) {
@@ -795,6 +797,7 @@ function applyCfg(map, md, limit, kpl) {
   S.setMap(mapId); buildWorld(); setupLight();
   nades = []; smokes = []; decals = []; objs = []; tracers = []; items = MAP.items.map(() => true);
   $('mapsel').value = mapId; $('modesel').value = mode;
+  rangeReset();
   buildLadder();
   if (LO.open) renderLoadout();
 }
@@ -808,11 +811,29 @@ const NET = {
     items = m.items.map(v => !!v);
     smokes = m.smokes.map(s => mkSmoke(s.p, t - (NADES.smoke.duration - s.left)));
     $('menu').classList.remove('on'); $('hud').style.display = 'block';
-    chatLine(null, 'Willkommen! Esc = Menü (Karte, Modus, Bots, Grafik).');
+    chatLine(null, 'Willkommen! Esc = Menü (Grafik, Loadout, Lobby).');
     menuBusy(null); refreshInvite();
     if (Net.mode === 'host' && Net.code) chatLine(null, 'Dein Spiel ist online. Code: ' + Net.code + ' – Einladungslink im Menü (Esc).');
-    openLoadout('spawn');
-    if (gameState === 'end') announce('Runde vorbei', 'Die nächste startet gleich', 4);
+    LB.host = m.host;
+    if (gameState === 'lobby') updateScreens();
+    else {
+      openLoadout('spawn');
+      if (gameState === 'end') announce('Runde vorbei', 'Gleich geht es zurück in die Lobby', 4);
+      if (mode === 'range') chatLine(null, 'Schießstand: E = Zielscheiben-Challenge, B = Waffe wählen.');
+    }
+  },
+  lobby(m) { Object.assign(LB, m); if (gameState === 'lobby') updateScreens(); },
+  start(m, t) {
+    gameState = 'play'; $('win').style.display = 'none';
+    for (const p of players.values()) { p.alive = false; }
+    updateScreens(); openLoadout('spawn');
+  },
+  tolobby() {
+    gameState = 'lobby'; me.alive = false; me.loAt = 0; me.reload = null; me.ads = 0; me.adsWant = false;
+    $('win').style.display = 'none';
+    if (LO.open) closeLoadout();
+    for (const p of players.values()) p.alive = false;
+    releaseMouse(); updateScreens();
   },
   cfg(m) { applyCfg(m.map, m.mode, m.limit, m.kpl); },
   teams(m) { for (const e of m.l) { const p = players.get(e[0]); if (p) { p.team = e[1]; setHue(p, e[2]); } } if (teamMode()) { const mine = players.get(myId); if (mine) announce('Team ' + TEAMS[mine.team].n, 'Erobert den Punkt in der Mitte!', 3); } },
@@ -999,6 +1020,8 @@ function fireGun(t, key, w, st) {
   const ends = [], hits = [];
   const mz = vmWorldPos(0.75, 0.16 * (1 - a), 0.12 * (1 - a) + 0.05 * a);
   const spread = me.spreadNow;
+  let rgHitThisShot = false;
+  if (RG.st === 'run') RG.shots++;
   for (let i = 0; i < w.pellets; i++) {
     const an = Math.random() * 6.283, r = spread * (Math.random() + Math.random()) * 0.7;
     let dx = b.f[0] + (b.r[0] * Math.cos(an) + b.u[0] * Math.sin(an)) * r, dy = b.f[1] + (b.u[1] * Math.sin(an)) * r, dz = b.f[2] + (b.r[2] * Math.cos(an) + b.u[2] * Math.sin(an)) * r;
@@ -1010,9 +1033,12 @@ function fireGun(t, key, w, st) {
       const rr = S.rayPlayer(eye[0], eye[1], eye[2], dx, dy, dz, p.pos, p.fl & 1);
       if (rr && rr.t < best) { best = rr.t; hit = p; zone = rr.zone; }
     }
+    const th = rangeRay(eye, dx, dy, dz, best);
+    if (th) { best = th.t; hit = null; }
     const end = [eye[0] + dx * best, eye[1] + dy * best, eye[2] + dz * best];
     ends.push(end.map(v => Math.round(v * 100) / 100));
-    if (hit) { hits.push({ id: hit.id, z: zone, p: end }); bloodFx(end); } else if (mh) impactFx(end, mh);
+    if (th) { if (i === 0 || !rgHitThisShot) rangeHit(th, t); rgHitThisShot = true; impactFx(end, th.g.fixed ? { ax: 2, sg: 1 } : null); }
+    else if (hit) { hits.push({ id: hit.id, z: zone, p: end }); bloodFx(end); } else if (mh) impactFx(end, mh);
     if (!st.sup) addTracer(mz, end);
   }
   const kick = w.kick * st.recoil * (1 - 0.2 * a) * rnd(0.8, 1.2);
@@ -1214,7 +1240,7 @@ function setLocked(v) {
   updateScreens();
 }
 function lockMouse() {
-  if (!joined || LO.open) return;
+  if (!joined || LO.open || gameState === 'lobby') return;
   let req = null;
   try { req = canvas.requestPointerLock(); } catch (e) { req = null; }
   if (req && req.catch) req.catch(() => enterSoft());
@@ -1275,6 +1301,8 @@ window.addEventListener('keydown', e => {
     case 'KeyG': { const s = [3, 4, 5].find(s => me.nades[NADE_KEYS[s - 3]] > 0 && s !== me.slot); if (s) setSlot(s, t); break; }
     case 'KeyQ': setSlot(me.lastSlot, t); break;
     case 'KeyR': startReload(t); break;
+    case 'KeyE': if (mode === 'range') rangeStart(t); break;
+    case 'KeyB': if (mode === 'range') openLoadout('edit'); break;
     case 'Tab': showSB = true; renderSB(); break;
     case 'Enter': case 'KeyT': openChat(); e.preventDefault(); break;
   }
@@ -1283,7 +1311,7 @@ window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab
 window.addEventListener('blur', () => { keys.clear(); mouseDown = false; showSB = false; });
 // Strg+W (Ducken + Vorwärts) würde den Tab schließen: im Spiel vorher nachfragen,
 // im Vollbild sperrt der Browser die Tastenkombination ganz (Keyboard Lock)
-window.addEventListener('beforeunload', e => { if (joined) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (joined && !leaving) { e.preventDefault(); e.returnValue = ''; } });
 function toggleFull() {
   const d = document;
   if (d.fullscreenElement) { d.exitFullscreen && d.exitFullscreen(); return; }
@@ -1313,8 +1341,15 @@ function chatLine(who, txt) {
 }
 
 // ================================================================= Menüs
-function updateScreens() { const p = joined && !locked && !LO.open && !PK.open; $('pause').classList.toggle('on', p); if (p) refreshPause(); }
-function showMenu(err) { $('hud').style.display = 'none'; $('pause').classList.remove('on'); $('menu').classList.add('on'); $('err').textContent = err || ''; if (document.exitPointerLock) document.exitPointerLock(); }
+function updateScreens() {
+  const lob = joined && gameState === 'lobby' && !LO.open && !PK.open;
+  $('lobby').classList.toggle('on', lob);
+  if (lob) { renderLobby(); $('hud').style.display = 'none'; }
+  else if (joined && !LO.open) $('hud').style.display = 'block';
+  const p = joined && !lob && gameState !== 'lobby' && !locked && !LO.open && !PK.open;
+  $('pause').classList.toggle('on', p); if (p) refreshPause();
+}
+function showMenu(err) { $('lobby').classList.remove('on'); $('hud').style.display = 'none'; $('pause').classList.remove('on'); $('menu').classList.add('on'); $('err').textContent = err || ''; if (document.exitPointerLock) document.exitPointerLock(); }
 function startGame(how) {
   const name = $('name').value.trim() || 'Spieler';
   store.set('name', name); $('err').textContent = '';
@@ -1331,6 +1366,8 @@ $('play').addEventListener('click', () => startGame('server'));
 $('hostbtn').addEventListener('click', () => startGame('host'));
 $('solobtn').addEventListener('click', () => startGame('local'));
 $('joinbtn').addEventListener('click', () => startGame('join'));
+$('rangebtn').addEventListener('click', () => startGame('range'));
+$('rangebtn2').addEventListener('click', () => startGame('range'));
 $('online2').addEventListener('click', () => {
   $('online2').disabled = true; $('invite2').textContent = 'Verbinde mit dem Online-Dienst …';
   Net.goOnline().then(code => { $('online2').disabled = false; refreshInvite(); chatLine(null, 'Dein Spiel ist online. Code: ' + code + ' – Link unten im Menü teilen.'); },
@@ -1349,6 +1386,9 @@ for (const k in MAPS) mk('option', '', MAPS[k].n, $('mapsel')).value = k;
 for (const k in MODES) mk('option', '', MODES[k].n, $('modesel')).value = k;
 $('sens').value = SET.sens; $('vol').value = SET.vol; $('fov').value = SET.fov; $('qual').value = SET.q; $('adsmode').value = SET.adsHold ? 'halten' : 'umschalten';
 function refreshPause() {
+  const lead = LB.host === myId;
+  $('tolobby').style.display = lead && mode !== 'range' ? '' : 'none';
+  setTxt('pausehint', mode === 'range' ? 'B = Waffe wählen · E = Challenge' : lead ? '' : 'Nur der Host kann zurück in die Lobby.');
   $('sensv').textContent = SET.sens.toFixed(2); $('volv').textContent = Math.round(SET.vol * 100) + '%'; $('fovv').textContent = SET.fov + '°';
   $('botn').textContent = [...players.values()].filter(p => p.bot).length + '';
 }
@@ -1357,6 +1397,9 @@ $('fov').addEventListener('input', e => { SET.fov = +e.target.value; store.set('
 $('vol').addEventListener('input', e => { SET.vol = +e.target.value; store.set('vol', SET.vol); Snd.setVol(SET.vol); refreshPause(); });
 $('qual').addEventListener('change', e => { SET.q = e.target.value; store.set('q', SET.q); setupShadow(); });
 $('adsmode').addEventListener('change', e => { SET.adsHold = e.target.value === 'halten'; store.set('ads', e.target.value); me.adsWant = false; });
+let leaving = false;
+$('tolobby').addEventListener('click', () => send({ t: 'tolobby' }));
+$('quit').addEventListener('click', () => { leaving = true; location.href = location.pathname; });
 $('applycfg').addEventListener('click', () => send({ t: 'cfg', map: $('mapsel').value, mode: $('modesel').value }));
 $('botadd').addEventListener('click', () => { send({ t: 'bot', n: 1 }); setTimeout(refreshPause, 250); });
 $('botdel').addEventListener('click', () => { send({ t: 'bot', n: -1 }); setTimeout(refreshPause, 250); });
@@ -1436,6 +1479,7 @@ $('pkequip').addEventListener('click', () => {
   $('pkequip').textContent = 'Ausgerüstet ✓ (ab nächstem Spawn)';
 });
 function openLoadout(m) {
+  if (m === 'spawn' && gameState === 'lobby') return;
   LO.open = true; LO.mode = m; LO.draft = S.sanitizeLoadout(JSON.parse(JSON.stringify(savedLo)));
   const k = mode === 'gungame' ? LADDER[Math.min(me.lvl, LADDER.length - 2)] : LO.draft.p;
   LO.edit = k;
@@ -1451,6 +1495,11 @@ function confirmLoadout() {
   send({ t: 'lo', lo: savedLo });
   const spawnMode = LO.mode === 'spawn';
   closeLoadout();
+  if (mode === 'range' && !spawnMode && me.alive) { // Schießstand: neue Waffen sofort in der Hand
+    me.lo = S.sanitizeLoadout(savedLo);
+    for (const sl of [0, 1]) { const k = curKey(sl); me.ammo[sl] = k ? stOf(k).mag : 0; }
+    me.reload = null; me.slot = 0; me.switchT = now(); Snd.init(); lockMouse(); return;
+  }
   if (spawnMode) { send({ t: 'ready' }); Snd.init(); lockMouse(); }
   else updateScreens();
 }
@@ -1557,6 +1606,124 @@ function cpHud(myTeam) {
   if (hc.cpw !== w + col) { hc.cpw = w + col; f.style.width = w + '%'; f.style.background = col; }
   void a; void b; void myTeam;
 }
+// ========================================================== Schießstand
+// Feste Scheiben auf 10/25/50 m (immer da) und die Challenge: 45 s lang tauchen bewegliche Scheiben auf.
+const RG = { st: 'idle', t0: 0, end: 0, score: 0, shots: 0, hits: 0, best: +store.get('rangeBest', 0) || 0, tg: [], next: 0, fixed: [] };
+function rangeReset() {
+  RG.st = 'idle'; RG.tg = []; RG.score = 0; RG.shots = 0; RG.hits = 0;
+  RG.fixed = MAP.range ? MAP.range.targets.map(([x, z]) => { const d = MAP.range.line - z; return { x, y: 1.45, z, r: d > 40 ? 0.75 : d > 20 ? 0.55 : 0.42, fixed: true, d }; }) : [];
+}
+function rangeStart(t) {
+  if (mode !== 'range' || !me.alive || RG.st === 'count' || RG.st === 'run') return;
+  RG.st = 'count'; RG.t0 = t; RG.tg = []; RG.score = 0; RG.shots = 0; RG.hits = 0;
+  announce('Bereit?', 'Triff so viele Scheiben wie möglich – je weiter und je mittiger, desto mehr Punkte', 3);
+}
+function rangeSpawn(t) {
+  const L = MAP.range.line, d = 8 + Math.random() * 40, z = L - d, r = d > 30 ? 0.62 : d > 16 ? 0.5 : 0.4;
+  if (Math.random() < 0.6) { // fährt quer über die Bahn
+    const dir = Math.random() < 0.5 ? 1 : -1, v = (1.6 + Math.random() * 2.6) * (0.7 + d / 45);
+    RG.tg.push({ kind: 'slide', x: -12.3 * dir, x0: -12.3 * dir, vx: v * dir, y: 0.9 + Math.random() * 1.1, z, r, t0: t, d });
+  } else { // klappt hoch, bleibt kurz stehen
+    RG.tg.push({ kind: 'pop', x: -10 + Math.random() * 20, y: 1.35, z, r, t0: t, life: 1.5 + Math.random() * 0.8, d });
+  }
+}
+function rangeTick(t, dt) {
+  if (mode !== 'range') return;
+  if (RG.st === 'count' && t >= RG.t0 + 3) { RG.st = 'run'; RG.t0 = t; RG.end = t + 45; RG.next = t + 0.3; Snd.level(); announce('Los!', '', 0.8); }
+  if (RG.st === 'run') {
+    if (t >= RG.next && RG.tg.filter(g => !g.hitT).length < 5) { rangeSpawn(t); RG.next = t + 0.55 + Math.random() * 0.6; }
+    if (t >= RG.end) {
+      RG.st = 'done'; RG.tg = [];
+      const acc = RG.shots ? Math.round(RG.hits / RG.shots * 100) : 0, rec = RG.score > RG.best;
+      if (rec) { RG.best = RG.score; store.set('rangeBest', RG.best); }
+      announce(rec ? 'Neuer Rekord!' : 'Zeit um!', RG.score + ' Punkte · ' + RG.hits + ' Treffer · ' + acc + ' % Genauigkeit  ·  E = nochmal', 5);
+      if (rec) Snd.win(); else Snd.level();
+    }
+  }
+  for (const g of RG.tg) {
+    if (g.hitT) continue;
+    if (g.kind === 'slide') g.x = g.x0 + g.vx * (t - g.t0);
+    else { const a = t - g.t0; g.up = a < 0.18 ? a / 0.18 : a > g.life ? Math.max(0, 1 - (a - g.life) / 0.18) : 1; }
+  }
+  RG.tg = RG.tg.filter(g => (g.hitT ? t - g.hitT < 0.6 : g.kind === 'slide' ? Math.abs(g.x) < 12.6 : t - g.t0 < g.life + 0.2));
+}
+// Strahl gegen Zielscheiben (Scheiben stehen senkrecht, Vorderseite zeigt zur Schützenlinie)
+function rangeRay(o, dx, dy, dz, maxT) {
+  if (mode !== 'range' || dz >= -1e-4) return null;
+  let best = null;
+  for (const g of RG.fixed.concat(RG.tg)) {
+    if (g.hitT || (g.kind === 'pop' && g.up < 0.8)) continue;
+    const t = (g.z - o[2]) / dz; if (t <= 0 || t >= maxT || (best && t >= best.t)) continue;
+    const ex = o[0] + dx * t - g.x, ey = o[1] + dy * t - g.y;
+    if (Math.abs(ex) < g.r && Math.abs(ey) < g.r) best = { t, g, ring: Math.min(5, 1 + Math.floor((1 - Math.max(Math.abs(ex), Math.abs(ey)) / g.r) * 5)) };
+  }
+  return best;
+}
+function rangeHit(h, t) {
+  const g = h.g, pts = Math.round(h.ring * 10 * (1 + g.d / 30) * (g.kind === 'slide' ? 1.3 : 1));
+  fx.hit = 1; fx.dmgNum = 1; $('hit').className = 'hud' + (h.ring === 5 ? ' hs' : '');
+  $('dmgnum').textContent = g.fixed ? h.ring + ' Ring · ' + Math.round(g.d) + ' m' : '+' + pts + (h.ring === 5 ? ' Volltreffer' : '');
+  Snd.hit(h.ring === 5);
+  if (!g.fixed && RG.st === 'run') { g.hitT = t; RG.hits++; RG.score += pts; }
+}
+function drawTarget(g, t) {
+  let m = M.trans(g.x, 0, g.z);
+  const up = g.kind === 'pop' ? (g.up || 0) : 1, fall = g.hitT ? Math.min(1, (t - g.hitT) / 0.35) : 0;
+  if (!g.fixed && g.kind === 'slide') drawBox(M.box(m, 0, g.y - g.r - 0.45, 0, 0.06, 0.9, 0.06, TMP), [0.3, 0.3, 0.32], 0);
+  if (g.fixed) drawBox(M.box(m, 0, (g.y - g.r) / 2, 0.03, 0.08, g.y - g.r, 0.08, TMP), [0.45, 0.33, 0.2], 0, 1, 7);
+  // Scheibe klappt um die Unterkante (Hochklappen bzw. Umfallen nach Treffer)
+  const piv = M.mul(M.trans(0, g.y - g.r, 0), M.rotX(-(1 - up) * 1.5 - fall * 1.4));
+  m = M.mul(m, piv);
+  const rings = [[1, [0.94, 0.93, 0.88]], [0.8, [0.12, 0.12, 0.13]], [0.6, [0.94, 0.93, 0.88]], [0.4, [0.85, 0.16, 0.12]], [0.2, [0.98, 0.8, 0.15]]];
+  rings.forEach(([k, c], i) => drawBox(M.box(m, 0, g.r, 0.012 * i, 2 * g.r * k, 2 * g.r * k, 0.03, TMP), c, g.fixed ? 0.05 : 0.15));
+}
+
+// =============================================================== Lobby
+const LB = { host: 0, map: 'stadt', mode: 'gungame', skill: 1, bots: 0, maxBots: 8 };
+function fillSel(el, obj, skip) { if (el.options.length) return; for (const k in obj) if (!skip(obj[k])) mk('option', '', obj[k].n, el).value = k; }
+function renderLobby() {
+  const lead = LB.host === myId, hostP = players.get(LB.host);
+  fillSel($('lbmode'), MODES, x => x.practice); fillSel($('lbmap'), MAPS, x => x.hidden);
+  $('lbmode').value = LB.mode; $('lbmap').value = LB.map; $('lbskill').value = LB.skill; $('lbbots').textContent = LB.bots;
+  for (const id of ['lbmode', 'lbmap', 'lbskill', 'lbbotadd', 'lbbotdel']) $(id).disabled = !lead;
+  $('lbbotadd').disabled = !lead || LB.bots >= LB.maxBots || players.size >= 12; $('lbbotdel').disabled = !lead || LB.bots <= 0;
+  $('lbdesc').textContent = (MODES[LB.mode] || MODES.gungame).d;
+  $('lbsub').textContent = lead ? 'Du bist Host – stelle das Spiel ein und starte, wenn alle da sind.' : 'Host: ' + (hostP ? hostP.name : '—') + ' – warte auf den Start.';
+  // Code / Link
+  const l = Net.inviteLink(), srv = NETKIND === 'server';
+  $('lbcodebox').style.display = window.BF_OFFLINE ? 'none' : 'flex';
+  $('lbcode').textContent = Net.code ? Net.code : srv ? location.host : 'offline';
+  $('lblink').textContent = l || (Net.mode === 'local' ? 'Noch offline – „Online stellen“, damit Freunde beitreten können.' : '');
+  $('lbcopy').style.display = l ? '' : 'none';
+  $('lbonline').style.display = Net.mode === 'local' && !Net.online && !window.BF_OFFLINE ? '' : 'none';
+  // Spieler
+  const ul = $('lbplayers'); ul.textContent = '';
+  const list = [...players.values()].sort((a, b) => (a.bot - b.bot) || (teamMode() ? a.team - b.team : 0) || a.id - b.id);
+  for (const p of list) {
+    const li = mk('li', p.id === myId ? 'me' : '', '', ul);
+    mk('span', 'dot', '', li).style.background = teamMode() ? TEAMS[p.team].css : p.css;
+    li.appendChild(document.createTextNode(p.name));
+    mk('span', 'tagx', (p.id === LB.host ? 'Host' : p.bot ? 'Bot' : 'Spieler') + (teamMode() ? ' · ' + TEAMS[p.team].n : ''), li);
+  }
+  $('lbcount').textContent = '(' + list.filter(p => !p.bot).length + ' Spieler, ' + list.filter(p => p.bot).length + ' Bots)';
+  $('lbstart').style.display = lead ? '' : 'none';
+  $('lbwait').textContent = lead ? '' : 'Warte, bis der Host das Spiel startet …';
+}
+const lset = o => send(Object.assign({ t: 'lset' }, o));
+$('lbmode').addEventListener('change', e => lset({ mode: e.target.value }));
+$('lbmap').addEventListener('change', e => lset({ map: e.target.value }));
+$('lbskill').addEventListener('change', e => lset({ skill: +e.target.value }));
+$('lbbotadd').addEventListener('click', () => lset({ bots: LB.bots + 1 }));
+$('lbbotdel').addEventListener('click', () => lset({ bots: LB.bots - 1 }));
+$('lbstart').addEventListener('click', () => { Snd.init(); send({ t: 'start' }); });
+$('lblo').addEventListener('click', () => { openLoadout('edit'); });
+$('lbleave').addEventListener('click', () => { leaving = true; location.href = location.pathname; });
+$('lbcopy').addEventListener('click', () => copyLink($('lbcopy')));
+$('lbonline').addEventListener('click', () => {
+  $('lbonline').disabled = true; $('lblink').textContent = 'Verbinde mit dem Online-Dienst …';
+  Net.goOnline().then(() => { $('lbonline').disabled = false; refreshInvite(); renderLobby(); }, err => { $('lbonline').disabled = false; $('lblink').textContent = err.message; });
+});
+
 function buildLadder() {
   const el = $('ladder'); el.textContent = '';
   el.style.display = mode === 'gungame' ? 'flex' : 'none';
@@ -1629,7 +1796,15 @@ function hud(t, dt) {
   let lead = null;
   for (const p of players.values()) if (!lead || (mode === 'dm' ? p.kills > lead.kills : (p.lvl > lead.lvl || (p.lvl === lead.lvl && p.kills > lead.kills)))) lead = p;
   const mine = players.get(myId), myKills = mine ? mine.kills : 0;
-  if (teamMode()) {
+  if (mode === 'range') {
+    const run = RG.st === 'run', cnt = RG.st === 'count';
+    setTxt('topbar', cnt ? 'Challenge startet in ' + Math.ceil(RG.t0 + 3 - t) + ' …' : run ? 'Zielscheiben-Challenge läuft' : 'Schießstand   ·   E = Challenge starten   ·   B = Waffe wählen   ·   Scheiben auf 10 / 25 / 50 m');
+    setDisp('rangehud', RG.st !== 'idle' ? 'flex' : 'none');
+    if (RG.st !== 'idle') {
+      setTxt('rgtime', run ? String(Math.max(0, Math.ceil(RG.end - t))) : cnt ? '45' : '0');
+      setTxt('rgscore', String(RG.score)); setTxt('rghits', RG.hits + '/' + RG.shots); setTxt('rgbest', String(RG.best));
+    }
+  } else if (teamMode()) {
     const myTeam = mine ? mine.team : 0, P = MAP.point, onP = P && me.alive && Math.hypot(me.p[0] - P[0], me.p[2] - P[2]) < P[3];
     setTxt('topbar', 'Ziel ' + dmLimit + ' Punkte   ·   Du bist Team ' + TEAMS[myTeam].n + (onP ? '   ·   Du stehst auf dem Punkt' : ''));
     cpHud(myTeam);
@@ -1864,8 +2039,9 @@ function frame() {
   if (joined) {
     if (me.alive && gameState === 'play') moveMe(t, dt); else me.v = [0, 0, 0];
     weaponTick(t, dt);
+    rangeTick(t, dt);
     netSend(t);
-    if (!me.alive && me.loAt && t >= me.loAt && !PK.open) { me.loAt = 0; if (!LO.open) openLoadout('spawn'); }
+    if (!me.alive && me.loAt && t >= me.loAt && !PK.open && gameState !== 'lobby') { me.loAt = 0; if (!LO.open) openLoadout('spawn'); }
     if (PK.open) packTick(t);
     if (softLock && locked) { const e = 0.12; let r = 0; if (mouseX < e) r = (e - mouseX) / e; else if (mouseX > 1 - e) r = -(mouseX - (1 - e)) / e; me.yaw += r * 2.6 * dt; }
   }
@@ -1951,6 +2127,7 @@ function frame() {
     drawBox(M.box(m, 0, 0, 0, 0.3, 0.3, 0.1, TMP), [0.1, 0.75, 0.2], 0.6); drawBox(M.box(m, 0, 0, 0, 0.1, 0.3, 0.3, TMP), [0.1, 0.75, 0.2], 0.6);
     drawBox(M.box(m, 0, 0, 0, 0.44, 0.1, 0.1, TMP), [0.1, 0.75, 0.2], 0.6); drawBox(M.box(m, 0, 0, 0, 0.1, 0.1, 0.44, TMP), [0.1, 0.75, 0.2], 0.6);
   }
+  if (mode === 'range') { for (const g of RG.fixed) drawTarget(g, t); for (const g of RG.tg) drawTarget(g, t); }
   if (teamMode() && MAP.point) {
     const P = MAP.point, own = CP.owner, cc = own >= 0 ? hsl(TEAMS[own].hue, 0.75, 0.5) : [0.85, 0.85, 0.85];
     const segs = 28;
@@ -2070,6 +2247,6 @@ applyCfg('stadt', 'gungame', 25);
 setupShadow();
 loadModels().then(() => { if (MD.ok) { buildWorld(); setupLight(); } });
 // Testzugriff für die Konsole
-window.BF = { me, players, LO, PK, NET, SH, gl, PW, MD, GUN, verts: () => [solidVerts, allVerts], setT: (k, v) => { me[k] = v; }, state: () => ({ joined, gameState, locked, softLock, myId, mode, mapId }), send, debugLock(v) { setLocked(v); }, startReload, openLoadout, confirmLoadout, stOf, cam, startGame };
+window.BF = { me, players, LO, PK, NET, SH, gl, PW, MD, GUN, verts: () => [solidVerts, allVerts], RG, rangeRay, eyePos, setT: (k, v) => { me[k] = v; }, state: () => ({ joined, gameState, locked, softLock, myId, mode, mapId }), send, debugLock(v) { setLocked(v); }, startReload, openLoadout, confirmLoadout, stOf, cam, startGame };
 requestAnimationFrame(frame);
 })();

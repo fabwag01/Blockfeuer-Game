@@ -150,6 +150,7 @@
   const MODES = {
     gungame: { n: 'Gun Game', d: 'Zwei Kills = nächste Waffe. Messer-Kill auf der letzten Stufe gewinnt.', kpl: 2 },
     dm:      { n: 'Deathmatch', d: 'Freie Waffenwahl. Wer zuerst 40 Kills hat, gewinnt.', limit: 40 },
+    range:   { n: 'Schießstand', d: 'Alle Waffen ausprobieren und auf Zielscheiben schießen.', practice: true },
     ctp:     { n: 'Punkt erobern', d: 'Team Blau gegen Team Rot. Erobert den Punkt in der Mitte und haltet ihn – 1 Punkt pro Sekunde, 180 gewinnen.', limit: 180, teams: true, capTime: 7 }
   };
   // welche Waffe hält ein Spieler in einem Slot? 0 = Primär, 1 = Sekundär, 2 = Messer
@@ -604,9 +605,38 @@
     };
   }
 
+  // ----------------------------------------------------- Karte 3: Schießstand
+  // Schützenlinie bei z = 25, Bahnen nach -z (Zielscheiben bis 60 m), überdachter Stand dahinter
+  function buildRange(K) {
+    const { B, D } = K, HX = 14, HZ = 36, M = MAT;
+    const C = { grass: [0.36, 0.52, 0.27], gravel: [0.66, 0.6, 0.5], conc: [0.66, 0.66, 0.64], wall: [0.58, 0.56, 0.52], wood: [0.55, 0.38, 0.22],
+      dark: [0.16, 0.17, 0.19], earth: [0.45, 0.36, 0.26], y: [0.95, 0.78, 0.15], o: [0.95, 0.5, 0.12], r: [0.85, 0.18, 0.14], roof: [0.42, 0.43, 0.45], lamp: [1, 0.9, 0.7] };
+    B(-HX - 1, -HZ - 1, HX + 1, HZ + 1, -1, 0, C.grass, M.grass);
+    D(-13, -34, 13, 24.6, 0, 0.02, C.gravel, M.sand);
+    B(-13, 24.6, 13, 35, 0, 0.12, C.conc, M.tiles);
+    B(-14, -36, -13, 36, 0, 4.5, C.wall, M.concrete); B(13, -36, 14, 36, 0, 4.5, C.wall, M.concrete);
+    B(-14, 35, 14, 36, 0, 4.5, C.wall, M.concrete);
+    B(-14, -36, 14, -34, 0, 9, C.earth, M.sand);                     // Kugelfang
+    for (let i = 0; i < 5; i++) B(-13, -34 + i * 0.9, 13, -33.1 + i * 0.9, 0, 6 - i * 1.3, C.earth, M.sand);
+    B(-13, 24.6, 13, 25.2, 0.12, 1.08, C.wood, M.wood);               // Schützentisch
+    for (const x of [-8.7, -4.35, 0, 4.35, 8.7]) B(x - 0.05, 25.2, x + 0.05, 28.2, 0.12, 2.3, C.dark, M.metal);
+    B(-13.5, 24.4, 13.5, 35.5, 3.6, 3.9, C.roof, M.concrete);
+    for (const x of [-12.8, -6.5, 6.5, 12.8]) B(x - 0.15, 24.45, x + 0.15, 24.75, 0.12, 3.6, C.dark, M.metal);
+    for (const x of [-10.9, -6.5, -2.2, 2.2, 6.5, 10.9]) D(x - 0.6, 27, x + 0.6, 27.8, 3.55, 3.6, C.lamp, M.lamp);
+    // Entfernungsmarken an den Seitenwänden: gelb 10 m, orange 25 m, rot 50 m
+    [[15, C.y], [0, C.o], [-25, C.r]].forEach(([z, c]) => { D(-13, z - 0.3, -12.85, z + 0.3, 0, 4.5, c, M.paint); D(12.85, z - 0.3, 13, z + 0.3, 0, 4.5, c, M.paint); D(-12.9, z - 0.05, 12.9, z + 0.05, 0.02, 0.04, c, M.paint); });
+    // Waffentische hinten im Stand
+    B(-11, 32.4, -5, 33.4, 0.12, 1.0, C.wood, M.wood); B(5, 32.4, 11, 33.4, 0.12, 1.0, C.wood, M.wood);
+    B(-1.2, 32.6, 1.2, 33.6, 0.12, 0.9, C.dark, M.metal);
+    const spawns = [[-6.5, 1, 29.5], [0, 1, 29.5], [6.5, 1, 29.5], [-2.2, 1, 30.5], [2.2, 1, 30.5]];
+    return { HX, HZ, spawns, items: [], range: { line: 25, targets: [[-7, 15], [0, 15], [7, 15], [-7, 0], [0, 0], [7, 0], [-7, -25], [0, -25], [7, -25]] },
+      env: { sun: [-0.4, 0.75, 0.5], sunCol: [3.3, 2.85, 2.2], ambT: [0.3, 0.36, 0.48], ambB: [0.2, 0.19, 0.15], fog: [0.78, 0.82, 0.86], fogD: 0.006, skyZ: [0.28, 0.5, 0.84], skyH: [0.86, 0.85, 0.82], sunC: [1, 0.88, 0.66], clouds: 0.4 } };
+  }
+
   const MAPS = {
     stadt:  { n: 'Altstadt', d: 'Große Stadtkarte mit Häusern, Straßen und Platz', build: buildStadt },
-    wueste: { n: 'Wüstendorf', d: 'Kleine, schnelle Karte', build: buildWueste }
+    wueste: { n: 'Wüstendorf', d: 'Kleine, schnelle Karte', build: buildWueste },
+    range:  { n: 'Schießstand', d: 'Übungsplatz mit Zielscheiben', build: buildRange, hidden: true }
   };
   function groundAt(x, y, z) {
     const r = rayBoxes(x, y, z, 0, -1, 0, 40);
@@ -618,7 +648,7 @@
     const res = MAPS[id].build(makeCtx());
     hid = 0;
     MAP.id = id; MAP.name = MAPS[id].n; MAP.boxes = boxes; MAP.deco = deco; MAP.props = props;
-    MAP.HX = res.HX; MAP.HZ = res.HZ; MAP.point = res.point;
+    MAP.HX = res.HX; MAP.HZ = res.HZ; MAP.point = res.point; MAP.range = res.range || null;
     const env = res.env, l = Math.hypot(env.sun[0], env.sun[1], env.sun[2]);
     env.sun = env.sun.map(v => v / l);
     MAP.env = env;

@@ -19,7 +19,9 @@ function create(opts) {
   S.setMap(mapId);
   const players = new Map();
   let nextId = 1, nextNadeId = 1;
-  let state = 'play', roundEndsAt = 0;
+  // Ablauf: 'lobby' (Einstellungen, Warten) -> 'play' -> 'end' (Siegerbildschirm) -> zurück in die Lobby
+let state = (opts.lobby === false || S.MODES[mode].practice) ? 'play' : 'lobby', roundEndsAt = 0;
+let leaderId = 0; // wer die Lobby steuert: der erste Mensch (beim Browser-Host also der Host selbst)
   let nades = [], smokes = [], items = [];
   let botSkill = Math.max(0, Math.min(2, opts.botSkill === undefined ? 1 : +opts.botSkill | 0));
   const BOT_NAMES = ['Bot Alfred', 'Bot Berta', 'Bot Clemens', 'Bot Dora', 'Bot Emil', 'Bot Frieda', 'Bot Gustl', 'Bot Hansi'];
@@ -169,7 +171,20 @@ function create(opts) {
     broadcast({ t: 'reset' });
     for (const p of back) spawnPlayer(p);
   }
-  function cfgMsg() { return { t: 'cfg', map: mapId, mode, limit: mode === 'ctp' ? CTP_LIMIT : DM_LIMIT, kpl: KPL }; }
+  function lobbyMsg() { return { t: 'lobby', host: leaderId, map: mapId, mode, skill: botSkill, bots: bots().length, maxBots: MAX_BOTS, state }; }
+function fixLeader() {
+  const l = players.get(leaderId);
+  if (l && !l.bot) return;
+  const h = [...players.values()].find(p => !p.bot);
+  leaderId = h ? h.id : 0;
+}
+function goLobby() {
+  state = 'lobby'; nades = []; smokes = []; resetCP();
+  for (const p of players.values()) { p.alive = false; p.ready = p.bot; }
+  broadcast({ t: 'tolobby' });
+  broadcast(lobbyMsg());
+}
+function cfgMsg() { return { t: 'cfg', map: mapId, mode, limit: mode === 'ctp' ? CTP_LIMIT : DM_LIMIT, kpl: KPL }; }
 
   // ------------------------------------------------------------ Nachrichten
   function onMessage(conn, m) {
@@ -179,17 +194,20 @@ function create(opts) {
       if (players.size - bots().length >= MAX_PLAYERS) { conn.send({ t: 'full' }); return conn.kill(); }
       const name = String(m.name || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 16) || 'Spieler';
       const p = makePlayer(uniqueName(name), conn, false);
+    if (!players.get(leaderId) || players.get(leaderId).bot) leaderId = p.id;
       p.lo = p.loNext = S.sanitizeLoadout(m.lo);
       conn.player = p;
       while (players.size > MAX_PLAYERS && bots().length) removeBot();
       conn.send(Object.assign(cfgMsg(), {
-        t: 'welcome', id: p.id, state, skill: botSkill,
+        t: 'welcome', id: p.id, state, skill: botSkill, host: leaderId,
         players: [...players.values()].map(info),
         pos: [...players.values()].filter(q => q.alive).map(q => [q.id, q.p[0], q.p[1], q.p[2], q.yaw]),
         items: items.map(i => i.on ? 1 : 0),
         smokes: smokes.map(s => ({ p: s.p, left: (s.until - now()) / 1000 }))
       }));
       broadcast({ t: 'join', p: info(p) }, p);
+    if (state === 'lobby') setTeams();
+    broadcast(lobbyMsg());
       log('+ ' + p.name + ' ist beigetreten (' + humans() + ' Spieler, ' + bots().length + ' Bots)');
       return;
     }
@@ -255,9 +273,34 @@ function create(opts) {
         throwNade(pl, m.k, m.o.slice(), m.v.slice());
         break;
       }
-      case 'lo': { pl.loNext = S.sanitizeLoadout(m.lo); break; }
+      case 'lo': { pl.loNext = S.sanitizeLoadout(m.lo); if (S.MODES[mode].practice) pl.lo = pl.loNext; break; }
+      // ---- Lobby (nur der Lobby-Leiter)
+      case 'lset': {
+        if (pl.id !== leaderId || state !== 'lobby') return;
+        let changed = false;
+        if (S.MAPS[m.map] && !S.MAPS[m.map].hidden && m.map !== mapId) { mapId = m.map; changed = true; }
+        if (S.MODES[m.mode] && !S.MODES[m.mode].practice && m.mode !== mode) { mode = m.mode; changed = true; }
+        if (num(m.skill)) { botSkill = Math.max(0, Math.min(2, m.skill | 0)); broadcast({ t: 'skill', n: botSkill }); }
+        if (num(m.bots)) { const n = Math.max(0, Math.min(MAX_BOTS, m.bots | 0)); while (bots().length < n && players.size < MAX_PLAYERS) addBot(); while (bots().length > n) removeBot(); }
+        if (changed) { S.setMap(mapId); buildGrid(); resetItems(); broadcast(cfgMsg()); }
+        setTeams();
+        broadcast(lobbyMsg());
+        break;
+      }
+      case 'start': {
+        if (pl.id !== leaderId || state !== 'lobby') return;
+        setTeams();
+        state = 'play';
+        broadcast({ t: 'start' });
+        broadcast({ t: 'chat', id: 0, m: S.MODES[mode].n + ' auf ' + S.MAPS[mapId].n + ' – los geht\'s!' });
+        resetRound();
+        log('Spiel gestartet: ' + S.MODES[mode].n + ' auf ' + S.MAPS[mapId].n);
+        break;
+      }
+      case 'tolobby': { if (pl.id === leaderId && state !== 'lobby' && !S.MODES[mode].practice) goLobby(); break; }
       case 'ready': { if (!pl.alive) pl.ready = true; break; }
       case 'cfg': {
+        if (pl.id !== leaderId) return;
         const nm = S.MAPS[m.map] ? m.map : mapId, nmo = S.MODES[m.mode] ? m.mode : mode;
         mapId = nm; mode = nmo;
         S.setMap(mapId); buildGrid(); setTeams();
@@ -273,8 +316,9 @@ function create(opts) {
         if (txt) broadcast({ t: 'chat', id: pl.id, m: txt });
         break;
       }
-      case 'bot': { if (m.n > 0) addBot(); else removeBot(); break; }
+      case 'bot': { if (pl.id !== leaderId) return; if (m.n > 0) addBot(); else removeBot(); broadcast(lobbyMsg()); break; }
       case 'skill': {
+        if (pl.id !== leaderId) return;
         botSkill = Math.max(0, Math.min(2, m.n | 0));
         broadcast({ t: 'skill', n: botSkill });
         break;
@@ -292,7 +336,9 @@ function create(opts) {
     players.delete(p.id);
     broadcast({ t: 'leave', id: p.id });
     log('- ' + p.name + ' hat das Spiel verlassen');
-    if (humans() === 0 && (state !== 'play' || [...players.values()].some(q => q.lvl > 0 || q.kills > 0))) { state = 'play'; resetRound(); }
+    fixLeader();
+    if (humans() === 0) { if (S.MODES[mode].practice) { state = 'play'; resetRound(); } else goLobby(); }
+    else { if (state === 'lobby') setTeams(); broadcast(lobbyMsg()); }
   }
   function throwNade(owner, k, o, v) {
     const n = { id: nextNadeId++, k, p: o, v, owner: owner.id, boomAt: now() + NADES[k].fuse * 1000 };
@@ -571,9 +617,9 @@ function create(opts) {
   }
   let lastPing = 0;
   function tick() {
-    if (humans() === 0) return;
+    if (humans() === 0 || state === 'lobby') return;
     const t = now(), dt = 1 / TICK;
-    if (state === 'end') { if (t >= roundEndsAt) resetRound(); }
+    if (state === 'end') { if (t >= roundEndsAt) goLobby(); }
     else {
       for (const p of [...players.values()]) {
         if (!p.alive) { if (t >= p.respawnAt && (p.bot || p.ready)) spawnPlayer(p); continue; }
