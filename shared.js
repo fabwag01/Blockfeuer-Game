@@ -87,6 +87,8 @@
   function sanitizeLoadout(lo) {
     lo = lo && typeof lo === 'object' ? lo : {};
     const out = { p: PRIMARY.indexOf(lo.p) >= 0 ? lo.p : 'm4', s: SECONDARY.indexOf(lo.s) >= 0 ? lo.s : 'pistol', att: {}, skin: {} };
+    // Zombie-Modus: gekaufte Waffen (Primär anfangs keine, Sekundär Pistole)
+    out.zp = PRIMARY.indexOf(lo.zp) >= 0 ? lo.zp : null; out.zs = SECONDARY.indexOf(lo.zs) >= 0 ? lo.zs : 'pistol';
     if (lo.skin && typeof lo.skin === 'object') for (const k of Object.keys(WEAPONS)) if (FINISHES[lo.skin[k]]) out.skin[k] = lo.skin[k];
     for (const k of Object.keys(WEAPONS)) {
       const c = compat(k); if (!c) continue;
@@ -150,13 +152,42 @@
   const MODES = {
     gungame: { n: 'Gun Game', d: 'Zwei Kills = nächste Waffe. Messer-Kill auf der letzten Stufe gewinnt.', kpl: 2 },
     dm:      { n: 'Deathmatch', d: 'Freie Waffenwahl. Wer zuerst 40 Kills hat, gewinnt.', limit: 40 },
+    zombies: { n: 'Zombies', d: 'Gemeinsam gegen Wellen von Zombies auf der Tankstelle. Kills bringen Coins – damit kauft ihr Waffen, Munition, Granaten, Medipacks und Geschütztürme (Taste B).', coop: true, map: 'tanke' },
     range:   { n: 'Schießstand', d: 'Alle Waffen ausprobieren und auf Zielscheiben schießen.', practice: true },
     ctp:     { n: 'Punkt erobern', d: 'Team Blau gegen Team Rot. Erobert den Punkt in der Mitte und haltet ihn – 1 Punkt pro Sekunde, 180 gewinnen.', limit: 180, teams: true, capTime: 7 }
   };
   // welche Waffe hält ein Spieler in einem Slot? 0 = Primär, 1 = Sekundär, 2 = Messer
+  // ---------------------------------------------------------------- Zombies
+  const ZTYPES = [
+    { k: 'walker', n: 'Zombie', hp: 100, sp: 2.5, dmg: 14, coins: 10, s: 1 },
+    { k: 'runner', n: 'Läufer', hp: 55, sp: 4.9, dmg: 9, coins: 15, s: 0.92 },
+    { k: 'brute', n: 'Koloss', hp: 520, sp: 1.9, dmg: 34, coins: 60, s: 1.35 }
+  ];
+  const TURRETS = {
+    mg:    { n: 'MG-Geschützturm', dmg: 22, rpm: 300, range: 24, life: 75 },
+    heavy: { n: 'Schweres Geschütz', dmg: 120, rpm: 45, range: 45, life: 90 }
+  };
+  const ZSHOP = [
+    { id: 'w:revolver', cat: 'Waffen', n: 'R8 Revolver', d: 'Sekundärwaffe, hoher Schaden', c: 200 },
+    { id: 'w:smg', cat: 'Waffen', n: 'Viper SMG', d: 'Schnell, ideal gegen Läufer', c: 400 },
+    { id: 'w:shotgun', cat: 'Waffen', n: 'Breacher', d: 'Schrotflinte für den Nahkampf', c: 500 },
+    { id: 'w:scout', cat: 'Waffen', n: 'Scout', d: 'Scharfschützengewehr', c: 600 },
+    { id: 'w:m4', cat: 'Waffen', n: 'M4 Karabiner', d: 'Allrounder', c: 750 },
+    { id: 'w:ak', cat: 'Waffen', n: 'AR-47', d: 'Mehr Schaden, mehr Rückstoß', c: 800 },
+    { id: 'w:longbow', cat: 'Waffen', n: 'Longbow .50', d: 'Durchschlagskraft gegen Kolosse', c: 1000 },
+    { id: 'w:lmg', cat: 'Waffen', n: 'Brute LMG', d: '80 Schuss im Magazin', c: 1200 },
+    { id: 'ammo', cat: 'Ausrüstung', n: 'Munition', d: 'Reserve aller Waffen auffüllen', c: 150 },
+    { id: 'n:he', cat: 'Ausrüstung', n: 'HE-Granate', d: 'Flächenschaden (max. 4)', c: 150, max: 4 },
+    { id: 'n:flash', cat: 'Ausrüstung', n: 'Blendgranate', d: 'Betäubt Zombies 4 s (max. 3)', c: 100, max: 3 },
+    { id: 'med', cat: 'Ausrüstung', n: 'Medipack', d: 'Volle Gesundheit', c: 200 },
+    { id: 'armor', cat: 'Ausrüstung', n: 'Schutzweste', d: 'Halbiert erlittenen Schaden (100 Punkte)', c: 300 },
+    { id: 't:mg', cat: 'Stationär', n: 'MG-Geschützturm', d: 'Feuert 75 s automatisch, 24 m Reichweite', c: 900 },
+    { id: 't:heavy', cat: 'Stationär', n: 'Schweres Geschütz', d: 'Langsam, sehr stark, 45 m, 90 s', c: 1500 }
+  ];
   const TEAMS = [{ n: 'Blau', hue: 212, css: '#4f8dff' }, { n: 'Rot', hue: 4, css: '#ff4f45' }];
   function slotWeapon(mode, lvl, lo, slot) {
     if (slot === 2) return 'knife';
+    if (mode === 'zombies') return slot === 0 ? (lo && lo.zp) || null : slot === 1 ? (lo && lo.zs) || 'pistol' : null;
     if (mode === 'gungame') return slot === 0 ? LADDER[Math.max(0, Math.min(LADDER.length - 1, lvl | 0))] : null;
     if (!lo) return slot === 0 ? 'm4' : 'pistol';
     return slot === 0 ? lo.p : slot === 1 ? lo.s : null;
@@ -633,10 +664,70 @@
       env: { sun: [-0.4, 0.75, 0.5], sunCol: [3.3, 2.85, 2.2], ambT: [0.3, 0.36, 0.48], ambB: [0.2, 0.19, 0.15], fog: [0.78, 0.82, 0.86], fogD: 0.006, skyZ: [0.28, 0.5, 0.84], skyH: [0.86, 0.85, 0.82], sunC: [1, 0.88, 0.66], clouds: 0.4 } };
   }
 
+  // -------------------------------------------- Karte 4: Tankstelle (Zombies)
+  function buildTanke(K) {
+    const { B, D, P } = K, HX = 34, HZ = 26, M = MAT;
+    const C = { asph: [0.24, 0.24, 0.26], grass: [0.27, 0.36, 0.2], walk: [0.5, 0.49, 0.46], wall: [0.82, 0.8, 0.74], red: [0.72, 0.14, 0.12], white: [0.9, 0.9, 0.88],
+      glass: [0.16, 0.22, 0.28], dark: [0.13, 0.13, 0.15], metal: [0.4, 0.42, 0.45], fence: [0.5, 0.52, 0.55], wood: [0.5, 0.36, 0.22], sand: [0.6, 0.53, 0.38],
+      rust: [0.45, 0.25, 0.14], lamp: [1, 0.86, 0.6], mark: [0.85, 0.82, 0.6], tree: [0.2, 0.3, 0.16], trunk: [0.3, 0.22, 0.15], barrel: [0.25, 0.42, 0.3] };
+    B(-HX - 1, -HZ - 1, HX + 1, HZ + 1, -1, 0, C.grass, M.grass);
+    B(-31, -23, 31, 23, 0, 0.03, C.asph, M.asphalt);
+    // Zaun mit Lücken (dort kommen die Zombies herein)
+    const gaps = { n: [-20, 10], s: [0, 18], w: [-10, 14], e: [-18, 0] };
+    const fence = (axis, c, a0, a1, gs) => {
+      let a = a0; const cuts = gs.map(g => [g - 1.6, g + 1.6]).sort((x, y) => x[0] - y[0]);
+      for (const [g0, g1] of cuts.concat([[a1, a1]])) { if (g0 > a) { if (axis === 'x') B(a, c - 0.06, g0, c + 0.06, 0, 2.3, C.fence, M.metal); else B(c - 0.06, a, c + 0.06, g0, 0, 2.3, C.fence, M.metal); } a = Math.max(a, g1); }
+    };
+    fence('x', -23, -31, 31, gaps.n); fence('x', 23, -31, 31, gaps.s); fence('z', -31, -23, 23, gaps.w); fence('z', 31, -23, 23, gaps.e);
+    for (let x = -31; x <= 31; x += 3.1) { D(x - 0.06, -23.1, x + 0.06, -22.9, 0, 2.5, C.metal, M.metal); D(x - 0.06, 22.9, x + 0.06, 23.1, 0, 2.5, C.metal, M.metal); }
+    // Straße mit Markierung
+    D(-31, 9.5, 31, 16.5, 0.03, 0.05, [0.2, 0.2, 0.22], M.asphalt);
+    for (let x = -30; x < 30; x += 4) D(x, 12.9, x + 2, 13.1, 0.05, 0.06, C.mark, M.mark);
+    // Tankstellen-Shop (begehbar, Tür vorne, Fenster mit Brüstung)
+    const sx0 = -16, sx1 = -3, sz0 = -18, sz1 = -9, h = 3.4, t = 0.3;
+    B(sx0, sz0, sx1, sz0 + t, 0, h, C.wall, M.plaster);
+    B(sx0, sz0, sx0 + t, sz1, 0, h, C.wall, M.plaster); B(sx1 - t, sz0, sx1, sz1, 0, h, C.wall, M.plaster);
+    B(sx0, sz1 - t, -12.5, sz1, 0, h, C.wall, M.plaster); B(-9, sz1 - t, -7.5, sz1, 0, h, C.wall, M.plaster); B(-4.8, sz1 - t, sx1, sz1, 0, h, C.wall, M.plaster);
+    B(-12.5, sz1 - t, -9, sz1, 0, 1.0, C.wall, M.plaster); B(-12.5, sz1 - t, -9, sz1, 2.6, h, C.wall, M.plaster); D(-12.5, sz1 - 0.2, -9, sz1 - 0.1, 1.0, 2.6, C.glass, M.glass);
+    B(-7.5, sz1 - t, -4.8, sz1, 2.4, h, C.wall, M.plaster);                 // Eingang (Tür offen)
+    B(sx1 - t, -15, sx1, -12, 0, 1.0, C.wall, M.plaster);                 // Seitenfenster: Brüstung
+    B(sx0 - 0.3, sz0 - 0.3, sx1 + 0.3, sz1 + 0.3, h, h + 0.35, C.red, M.paint);
+    B(sx0 + 0.3, sz0 + 0.3, sx1 - 0.3, sz1 - 0.3, 0, 0.06, [0.6, 0.6, 0.58], M.tiles);
+    B(-14.5, -16.5, -11, -15.6, 0.06, 1.05, C.red, M.paint);                // Theke
+    for (const x of [-9.5, -6.5]) B(x - 0.4, -16.8, x + 0.4, -13.2, 0.06, 1.9, C.metal, M.metal); // Regale
+    // Zapfsäulen mit Dach
+    for (const [x, z] of [[3, -6], [15, -6], [3, 4], [15, 4]]) B(x - 0.25, z - 0.25, x + 0.25, z + 0.25, 0, 4.6, C.white, M.paint);
+    B(1.5, -7.5, 16.5, 5.5, 4.6, 5.1, C.white, M.paint); B(1.4, -7.6, 16.6, 5.6, 5.1, 5.6, C.red, M.paint);
+    for (const z of [-3.5, 1.5]) { B(4.5, z - 0.7, 13.5, z + 0.7, 0, 0.25, C.walk, M.concrete); for (const x of [6.5, 11.5]) B(x - 0.4, z - 0.3, x + 0.4, z + 0.3, 0.25, 1.75, C.red, M.paint); }
+    for (const x of [3, 9, 15]) D(x - 1.2, -1.2, x + 1.2, -0.6, 4.55, 4.6, C.lamp, M.lamp);
+    // Wracks, Sandsäcke, Fässer, Container
+    const car = (x, z, c, rot) => { const L = rot ? [0.95, 2.1] : [2.1, 0.95]; B(x - L[0], z - L[1], x + L[0], z + L[1], 0.3, 0.95, c, M.paint); const T = rot ? [0.85, 1.1] : [1.1, 0.85]; B(x - T[0], z - T[1], x + T[0], z + T[1], 0.95, 1.45, C.glass, M.glass); };
+    car(-22, 4, C.rust, false); car(22, -15, [0.25, 0.3, 0.45], true); car(-4, 13, [0.6, 0.55, 0.2], false); car(24, 14, C.rust, false);
+    B(-27, -19, -21, -16.6, 0, 2.6, [0.2, 0.36, 0.5], M.metal);                     // Container
+    for (const [x, z] of [[-5.5, -6.5], [-2.5, -6.5]]) B(x - 1.2, z - 0.4, x + 1.2, z + 0.4, 0, 1.0, C.sand, M.sand); // Sandsäcke vor dem Shop
+    B(-17.5, -7, -15.5, -6.2, 0, 1.0, C.sand, M.sand); B(18, 8, 20.4, 8.8, 0, 1.0, C.sand, M.sand); B(-18, 18, -15.6, 18.8, 0, 1.0, C.sand, M.sand);
+    for (const [x, z] of [[18.6, -1], [19.4, -0.2], [-20, 9], [8, 19], [27, -6], [-26, -6]]) B(x - 0.35, z - 0.35, x + 0.35, z + 0.35, 0, 1.05, C.barrel, M.metal);
+    B(6, 18, 12, 20.5, 0, 1.2, C.wood, M.wood); B(-26, 10, -23, 13, 0, 1.4, C.wood, M.wood);
+    // Laternen
+    for (const [x, z] of [[-24, 8], [-10, 8], [6, 8], [22, 8], [-24, -21], [26, 20]]) { B(x - 0.1, z - 0.1, x + 0.1, z + 0.1, 0, 5.2, C.dark, M.metal); D(x - 0.35, z - 0.35, x + 0.35, z + 0.35, 5.0, 5.2, C.lamp, M.lamp); }
+    // Bäume außerhalb des Zauns
+    for (const [x, z] of [[-33, -20], [-33, 0], [33, -10], [33, 8], [-12, 25], [14, -25], [26, 25], [-26, -25]]) { D(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 0, 2.4, C.trunk, M.wood); D(x - 1.3, z - 1.3, x + 1.3, z + 1.3, 2.2, 4.4, C.tree, M.grass); }
+    // Kulisse: Kenney-Häuser und Skyline hinter dem Zaun
+    P('k', -14, -32, 0, [6, 6, 6], 2); P('a', 6, -31, 0, [7, 7, 7], 1); P('f', 22, -31.5, 0, [7, 7, 7], 0);
+    P('j', 12, 33, Math.PI, [6.5, 6.5, 6.5], 0); P('i', -16, 33, Math.PI, [7, 7, 7], 2);
+    [[-80, -60, 'ld-b'], [-40, -85, 'ld-e'], [10, -90, 'ld-h'], [60, -75, 'ld-a'], [90, -20, 'ld-m'], [85, 45, 'ld-c'], [30, 90, 'ld-wide-a'], [-50, 80, 'ld-k'], [-95, 20, 'ld-f']].forEach(([x, z, k], i) =>
+      P(k, x, z, Math.atan2(x, z), [20, 18 + (i % 3) * 6, 20], i % 3, { far: true, y: -2 }));
+    const spawns = [[-6, 1, -12], [-11, 1, -12], [-4, 1, -4], [9, 1, -1], [9, 1, 2], [-8, 1, 2]];
+    const zsp = [[-20, -25.5], [10, -25.5], [0, 25.5], [18, 25.5], [-33.5, -10], [-33.5, 14], [33.5, -18], [33.5, 0]];
+    return { HX, HZ, spawns, items: [], zspawns: zsp,
+      env: { sun: [0.75, 0.22, -0.45], sunCol: [2.3, 1.25, 0.75], ambT: [0.2, 0.2, 0.33], ambB: [0.12, 0.1, 0.12], fog: [0.27, 0.23, 0.3], fogD: 0.02, skyZ: [0.12, 0.13, 0.3], skyH: [0.62, 0.36, 0.3], sunC: [1, 0.55, 0.3], clouds: 0.55 } };
+  }
+
   const MAPS = {
     stadt:  { n: 'Altstadt', d: 'Große Stadtkarte mit Häusern, Straßen und Platz', build: buildStadt },
     wueste: { n: 'Wüstendorf', d: 'Kleine, schnelle Karte', build: buildWueste },
-    range:  { n: 'Schießstand', d: 'Übungsplatz mit Zielscheiben', build: buildRange, hidden: true }
+    range:  { n: 'Schießstand', d: 'Übungsplatz mit Zielscheiben', build: buildRange, hidden: true },
+    tanke:  { n: 'Tankstelle', d: 'Verlassene Tankstelle in der Dämmerung (Zombies)', build: buildTanke, hidden: true }
   };
   function groundAt(x, y, z) {
     const r = rayBoxes(x, y, z, 0, -1, 0, 40);
@@ -648,7 +739,7 @@
     const res = MAPS[id].build(makeCtx());
     hid = 0;
     MAP.id = id; MAP.name = MAPS[id].n; MAP.boxes = boxes; MAP.deco = deco; MAP.props = props;
-    MAP.HX = res.HX; MAP.HZ = res.HZ; MAP.point = res.point; MAP.range = res.range || null;
+    MAP.HX = res.HX; MAP.HZ = res.HZ; MAP.point = res.point; MAP.range = res.range || null; MAP.zspawns = res.zspawns || null;
     const env = res.env, l = Math.hypot(env.sun[0], env.sun[1], env.sun[2]);
     env.sun = env.sun.map(v => v / l);
     MAP.env = env;
@@ -772,6 +863,7 @@
 
   return {
     RARITY, FINISHES, rollSkin, skinInfo, TEAMS,
+    ZTYPES, TURRETS, ZSHOP,
     WEAPONS, LADDER, PRIMARY, SECONDARY, CLASS_NAME, ATT, ATT_SLOTS, ATT_SLOT_NAME, NADES, PLAYER, MODES, MAPS, MAT, MAP,
     compat, stats, sanitizeLoadout, randomLoadout, slotWeapon, setMap, groundAt,
     rayBoxes, rayPlayer, losClear, segSphere, collide, pointSolid, stepNade, falloff, zoneMult

@@ -11,6 +11,7 @@ Ein 3D-Shooter im Stil von CS, der komplett im Browser läuft. Über **GitHub Pa
 - **Utility:** HE-, Blend- und Rauchgranate, Medipacks
 - **Belohnung:** Wer eine Runde gewinnt, öffnet ein Glückspaket mit einem zufälligen Waffen-Skin
 - **Lobby:** Nach dem Erstellen landet ihr in einer Lobby mit Spiel-Code, Spielerliste, Modus, Karte, Anzahl und Stärke der Bots – erst der Host startet das Spiel. Nach jeder Runde geht es dorthin zurück.
+- **Zombies:** Koop-Modus auf der eigenen Karte „Tankstelle“ (Dämmerung): Welle um Welle von Zombies, Coins für Kills, Shop mit Waffen, Munition, Granaten, Medipacks, Schutzweste und Geschütztürmen
 - **Schießstand:** Alle Waffen mit allen Aufsätzen ausprobieren, Scheiben auf 10/25/50 m und eine 45-Sekunden-Challenge mit fahrenden und aufklappenden Zielscheiben (Rekord wird gespeichert)
 - **Außerdem:** Scoreboard (Tab), Killfeed, Chat, Kopfschüsse, Bots in drei Stärken, bis zu 12 Spieler
 
@@ -75,7 +76,8 @@ Gut zu wissen:
 | 4 / 5 / 6 | HE- / Blend- / Rauchgranate (G wechselt durch) |
 | Tab | Scoreboard |
 | Enter | Chat |
-| E / B | Schießstand: Challenge starten / Waffe wählen |
+| B | Zombies: Shop öffnen · Schießstand: Waffe wählen |
+| E | Schießstand: Challenge starten |
 | Esc | Menü: Loadout, Maus, Sichtfeld, Lautstärke, Grafik, Vollbild, zurück zur Lobby, Einladungslink |
 
 **Strg+W:** Wer geduckt vorwärts läuft, drückt Strg+W – das schließt normalerweise den Browser-Tab. Im Spiel fragt der Browser deshalb vorher nach („Seite verlassen?“ → *Abbrechen*). Sicherer ist **Esc → Vollbild**: Im Vollbild sperrt das Spiel die Tastenkombination (Chrome/Edge). Alternativ duckt auch **C**.
@@ -111,6 +113,25 @@ Gewinnt ein Spieler eine Runde (Bots bekommen nichts), bekommt er ein Glückspak
 
 Messer-Skins gibt es nur ab Legendär. Das Inventar gehört zum Browser (keine Benutzerkonten).
 
+## Zombie-Modus
+
+In der Lobby **Zombies** wählen – die Karte „Tankstelle“ wird automatisch gesetzt, Bots spielen nicht mit (nur ihr gemeinsam, bis 12 Spieler).
+
+- **Ablauf:** 12 Sekunden Vorbereitung, dann kommen die Zombies durch die Lücken im Zaun. Ist eine Welle komplett erledigt, gibt es 20 Sekunden Pause und einen Coin-Bonus. Jede Welle bringt mehr und stärkere Zombies.
+- **Zombie-Arten:** normale Zombies; ab Welle 3 schnelle **Läufer**; ab Welle 5 große **Kolosse** mit viel Leben und hartem Schlag. Kopfschüsse zählen mehr.
+- **Tod:** Wer stirbt, schaut zu und steigt in der nächsten Pause wieder ein. Sind alle gleichzeitig tot, ist das Spiel vorbei („Überrannt!“) und es geht zurück in die Lobby. Ab Welle 5 gibt es für alle ein Glückspaket.
+- **Coins:** Start mit 500 Coins und der Pistole. +1 pro Treffer, 10/15/60 pro Kill (Zombie/Läufer/Koloss), +5 für Kopfschuss-Kills, Bonus nach jeder Welle.
+- **Shop (Taste B, jederzeit – das Spiel läuft weiter!):**
+
+| Kategorie | Angebot |
+|---|---|
+| Waffen | Revolver 200 · Viper SMG 400 · Breacher 500 · Scout 600 · M4 750 · AR-47 800 · Longbow 1000 · Brute LMG 1200 |
+| Ausrüstung | Munition 150 · HE-Granate 150 · Blendgranate 100 (betäubt Zombies) · Medipack 200 · Schutzweste 300 (halbiert Schaden) |
+| Stationär | MG-Geschützturm 900 (75 s, 24 m) · Schweres Geschütz 1500 (90 s, 45 m) – werden vor dir aufgestellt, max. 2 pro Spieler |
+
+- **Munition ist begrenzt:** Neben dem Magazin gibt es eine Reserve (rechts unten „30 / 150“). Ist sie leer, hilft nur der Shop.
+- Die Aufsätze aus deinem Loadout gelten auch für gekaufte Waffen.
+
 ## Regeln im Detail
 
 - **Gun Game:** Zwei Kills mit der Stufenwaffe oder HE-Granate = +1 Stufe. Ein Messer-Kill bringt sofort +1 Stufe und klaut dem Opfer eine Stufe. Selbstmord kostet den Fortschritt bzw. eine Stufe. Ein Messer-Kill auf der letzten Stufe gewinnt.
@@ -136,7 +157,7 @@ Die Seite merkt selbst, ob sie von diesem Server kommt, und zeigt dann statt „
 | `BOTS` | Anzahl Bots beim Start (0–8) | 2 |
 | `BOT_SKILL` | 0 = leicht, 1 = mittel, 2 = schwer | 1 |
 | `MAP` | `stadt` oder `wueste` | stadt |
-| `MODE` | `gungame`, `dm` oder `ctp` (Punkt erobern) | gungame |
+| `MODE` | Start-Modus in der Lobby: `gungame`, `dm`, `ctp` (Punkt erobern) oder `zombies` | gungame |
 
 ## Aufbau
 

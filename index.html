@@ -163,6 +163,16 @@
   .lbbots b { min-width: 28px; text-align: center; font-size: 18px; }
   .lbfoot { margin-top: 18px; align-items: center; } .lbfoot #lbleave { margin-left: auto; }
   .lbset select:disabled, .lbbots button:disabled { opacity: .55; cursor: default; }
+  #zinfo { display: none; margin-top: 8px; font-size: 15px; letter-spacing: .06em; }
+  #zinfo .zc b, .gold { color: #ffcf3a; font-size: 22px; font-variant-numeric: tabular-nums; } #zarmor { margin-left: 14px; color: #8fc1ff; }
+  #shop { background: rgba(8, 9, 11, .72); }
+  .shopcard { width: min(980px, 96vw); }
+  #shbody { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 14px 0 16px; }
+  @media (max-width: 760px) { #shbody { grid-template-columns: minmax(0, 1fr); } }
+  .shcol h3 { margin: 0 0 8px; }
+  .shitem { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; text-align: left; text-transform: none; letter-spacing: .01em; margin-bottom: 7px; padding: 9px 12px; }
+  .shitem b { font-size: 15px; } .shitem .pr { color: #ffcf3a; font-weight: 700; } .shitem small { grid-column: 1 / -1; color: var(--dim); font-size: 12px; }
+  .shitem.owned .pr { color: var(--green); } .shitem:disabled { opacity: .45; }
   #rangehud { position: fixed; left: 50%; top: 44px; transform: translateX(-50%); display: none; gap: 22px; background: rgba(0, 0, 0, .5); padding: 8px 18px; font-size: 15px; font-variant-numeric: tabular-nums; z-index: 3; }
   #rangehud b { color: var(--acc2); font-size: 20px; }
   #pause .set .row { flex-wrap: nowrap; gap: 8px; } #pause .set button { padding: 7px 10px; font-size: 12px; }
@@ -245,7 +255,7 @@
   <div class="hud" id="center"><div id="msg"></div><div id="sub"></div></div>
   <div class="hud" id="reload">NACHLADEN …</div>
   <div class="hud" id="chatlog"></div>
-  <div class="hud" id="bl"><div id="hpnum" class="mono">100<small>HP</small></div><div id="hpbar"><i></i></div></div>
+  <div class="hud" id="bl"><div id="hpnum" class="mono">100<small>HP</small></div><div id="hpbar"><i></i></div><div id="zinfo"><span class="zc"><b id="zcoins">0</b> Coins</span><span id="zarmor"></span></div></div>
   <div class="hud" id="br">
     <div id="ammo" class="mono">15<small>/ ∞</small></div>
     <div id="wname"></div>
@@ -262,7 +272,7 @@
 <div class="screen on" id="menu">
   <div class="card">
     <h1 class="logo">BLOCK<span>FEUER</span></h1>
-    <div class="tagline" id="tagline">Gun Game · Deathmatch · Punkt erobern · Schießstand</div>
+    <div class="tagline" id="tagline">Gun Game · Deathmatch · Punkt erobern · Zombies</div>
     <div class="row">
       <input id="name" type="text" maxlength="16" placeholder="Dein Name" autocomplete="off">
       <button class="go" id="play">Spielen</button>
@@ -307,6 +317,7 @@
           <li><b>Gun Game:</b> zwei Kills bringen die nächste Waffe, ein Messer-Kill auf der letzten Stufe gewinnt.</li>
           <li><b>Deathmatch:</b> freie Waffenwahl, wer zuerst 40 Kills hat, gewinnt.</li>
           <li><b>Lobby:</b> Wer ein Spiel erstellt, stellt dort Modus, Karte und Bots ein, teilt den Code und startet.</li>
+          <li><b>Zombies:</b> gemeinsam Wellen überleben, mit Coins im Shop (B) Waffen, Munition, Granaten, Medipacks und Geschütztürme kaufen.</li>
           <li><b>Schießstand:</b> alle Waffen testen, E startet die Zielscheiben-Challenge.</li>
           <li><b>Punkt erobern:</b> Team Blau gegen Rot. Steht nur dein Team im Ring in der Mitte, wird der Punkt erobert; gehalten bringt er 1 Punkt pro Sekunde – 180 gewinnen.</li>
           <li>Pro Leben: 1 HE-, 1 Blend-, 1 Rauchgranate. Medipacks liegen auf der Karte.</li>
@@ -363,6 +374,14 @@
       </div>
     </div>
     <div class="row lbfoot"><button class="go" id="lbstart">Spiel starten</button><span id="lbwait" class="dim"></span><button id="lblo">Loadout vorbereiten</button><button id="lbleave">Verlassen</button></div>
+  </div>
+</div>
+
+<div class="screen" id="shop">
+  <div class="card shopcard">
+    <div class="lbhead"><h2>SHOP</h2><span class="dim">Coins: <b id="shcoins" class="gold">0</b> · B oder Esc = zurück ins Spiel (das Spiel läuft weiter!)</span></div>
+    <div id="shbody"></div>
+    <div class="row"><button class="go" id="shclose">Zurück ins Spiel</button></div>
   </div>
 </div>
 
