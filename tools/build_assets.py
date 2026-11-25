@@ -6,6 +6,8 @@
    Waffen: Lauf zeigt nach -z, Ursprung am Griff, Länge in Spieleinheiten. Stadt: Originalmaße."""
 import sys, json, struct, math, os, glob
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gltflib import static_tris, skinned
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from objlib import load_obj, lin2srgb, components
 from PIL import Image
 if len(sys.argv) < 4: sys.exit(__doc__)
@@ -171,15 +173,82 @@ for f in sorted(glob.glob(SRC_C + 'GLB format/*.glb')):
             cols = [[sample(k, u, v) for (u, v) in uvs] for k in range(3)]
             g.append((P[ids[0]], P[ids[1]], P[ids[2]], cols[0], 0))
             vc[0].extend(cols[1]); vc[1].extend(cols[2])
+    vb = len(varcols[0]) // 4
     rng = emit(g)
     for k in range(2):
         for c in vc[k]: varcols[k] += bytes([max(0, min(255, int(round(v * 255)))) for v in c] + [0])
     PV = [v for t in g for v in t[:3]]
-    out['city'][name] = {'r': rng, 'min': [round(min(p[k] for p in PV), 4) for k in range(3)], 'max': [round(max(p[k] for p in PV), 4) for k in range(3)]}
+    out['city'][name] = {'r': rng, 'vb': vb, 'min': [round(min(p[k] for p in PV), 4) for k in range(3)], 'max': [round(max(p[k] for p in PV), 4) for k in range(3)]}
+
+# ------------------------------------------------ weitere Requisiten (optional, wenn Pakete angegeben)
+# Aufruf mit zusätzlichen Ordnern: --zombie DIR --nature DIR --kaykit DIR --furniture DIR --roads DIR
+import argparse, numpy as np
+ap = argparse.ArgumentParser(); [ap.add_argument('--' + k) for k in ('zombie', 'nature', 'kaykit', 'furniture', 'roads')]
+args = ap.parse_args(sys.argv[4:])
+from objlib import load_obj
+PROPS = {
+  'zk': (args.zombie, 'Environment/glTF/{}.gltf', ['Barrel', 'Container_Red', 'Container_Green', 'Pallet', 'Pallet_Broken', 'TrafficCone_1', 'TrafficCone_2', 'TrafficBarrier_1',
+         'PlasticBarrier', 'TrashBag_1', 'Wheels_Stack', 'Wheel', 'WaterTower', 'StreetLights', 'FireHydrant', 'CinderBlock', 'Blood_1', 'Blood_2', 'Blood_3'] ),
+  'zv': (args.zombie, 'Vehicles/glTF/{}.gltf', ['Vehicle_Pickup', 'Vehicle_Sports', 'Vehicle_Truck']),
+  'kk': (args.kaykit, 'Assets/gltf/{}.gltf', ['car_hatchback', 'car_police', 'car_sedan', 'car_stationwagon', 'car_taxi', 'trafficlight_B', 'dumpster', 'firehydrant']),
+  'nt': (args.nature, 'OBJ/{}.obj', ['CommonTree_3', 'CommonTree_4', 'BirchTree_1', 'BirchTree_2', 'PineTree_1', 'PineTree_2', 'CommonTree_Dead_2', 'BirchTree_Dead_1',
+         'Bush_1', 'Bush_2', 'Rock_1', 'Rock_2', 'Rock_3', 'Rock_Moss_2', 'Cactus_1', 'Cactus_2', 'Cactus_3', 'PalmTree_1', 'PalmTree_2', 'Flowers', 'Plant_1', 'Plant_2', 'TreeStump', 'WoodLog']),
+  'fu': (args.furniture, 'Models/GLTF format/{}.glb', ['bedDouble', 'loungeSofa', 'tableCoffee', 'table', 'tableRound', 'chair', 'chairCushion', 'bookcaseOpen',
+         'kitchenCabinet', 'kitchenFridgeLarge', 'kitchenStove', 'kitchenSink', 'kitchenBar', 'kitchenCoffeeMachine', 'computerScreen', 'televisionModern',
+         'cabinetTelevision', 'lampSquareFloor', 'pottedPlant', 'rugRectangle', 'rugRound', 'stoolBar', 'trashcan', 'cardboardBoxClosed', 'cardboardBoxOpen']),
+  'rd': (args.roads, 'Models/GLTF format/{}.glb', ['light_curved', 'construction_light']),
+}
+nprops = 0
+for pre, (base, pat, names) in PROPS.items():
+    if not base: continue
+    for nm in names:
+        path = os.path.join(base, pat.format(nm))
+        if not os.path.exists(path): print('fehlt:', path); continue
+        if path.endswith('.obj'):
+            V, tris, mats = load_obj(path)
+            TP = np.array([[V[t[0]], V[t[1]], V[t[2]]] for t in tris], dtype=np.float64)
+            TC = np.array([[lin2srgb(mats.get(t[3], [0.5] * 3))] * 3 for t in tris], dtype=np.float64)
+        else:
+            TP, TC = static_tris(path)
+        g = [(list(TP[i, 0]), list(TP[i, 1]), list(TP[i, 2]), [list(TC[i, 0]), list(TC[i, 1]), list(TC[i, 2])], 0) for i in range(len(TP))]
+        rng = emit(g)
+        out['city'][pre + ':' + nm] = {'r': rng, 'min': [round(float(v), 4) for v in TP.reshape(-1, 3).min(0)], 'max': [round(float(v), 4) for v in TP.reshape(-1, 3).max(0)]}
+        nprops += len(TP)
+print('weitere Requisiten: Dreiecke', nprops)
 out['cityStart'] = city_start; out['cityCount'] = nverts - city_start
 out['nverts'] = nverts
 out['varOffset'] = [len(verts), len(verts) + len(varcols[0])]
 os.makedirs(OUT, exist_ok=True)
 open(OUT + '/models.bin', 'wb').write(bytes(verts) + bytes(varcols[0]) + bytes(varcols[1]))
+# ------------------------------------------- animierte Zombies (Skinning, eigene Datei zombies.bin)
+if args.zombie:
+    ZD = os.path.join(args.zombie, 'Characters/glTF/')
+    ZM = { # Typ: Modell, Zielhöhe (m), Clips
+      'basic':   ('Zombie_Basic', 1.78, {'walk': ('Walk', True), 'run': ('Run', True), 'attack': ('Punch', True), 'death': ('Death', False), 'hit': ('HitReact', False)}),
+      'chubby':  ('Zombie_Chubby', 1.82, {'walk': ('Walk', True), 'run': ('Run', True), 'attack': ('Punch', True), 'death': ('Death', False), 'hit': ('HitReact', False)}),
+      'ribcage': ('Zombie_Ribcage', 1.62, {'walk': ('Walk', True), 'run': ('Run', True), 'attack': ('Run', True), 'death': ('Death', False), 'hit': ('HitReact', False)}),
+      'arm':     ('Zombie_Arm', 2.4, {'walk': ('Walk', True), 'run': ('Run', True), 'attack': ('Punch', True), 'death': ('Death', False), 'hit': ('HitReact', False)}),
+    }
+    zb = bytearray(); zj = {}
+    for k, (fn, height, clips) in ZM.items():
+        s = skinned(ZD + fn + '.gltf', clips, fps=15)
+        P = s['P']; sc = height / (P[:, 1].max() - P[:, 1].min())
+        while len(zb) % 4: zb += b'\0'
+        vo = len(zb)
+        for i in range(len(P)):
+            n = s['N'][i] / (np.linalg.norm(s['N'][i]) or 1)
+            zb += struct.pack('<fffbbbBBBBB', *[float(v) for v in P[i]], *[int(round(v * 127)) for v in n], 0, *[max(0, min(255, int(round(v * 255)))) for v in s['C'][i]], 0)
+            zb += bytes([int(v) for v in s['J'][i]]) + bytes([max(0, min(255, int(round(v * 255)))) for v in s['W'][i]])
+        io_ = len(zb); zb += s['I'].astype('<u2').tobytes()
+        while len(zb) % 4: zb += b'\0'
+        cl = {}
+        for cn, c in s['clips'].items():
+            co = len(zb); zb += c['frames'].astype('<f4').tobytes()
+            cl[cn] = {'o': co, 'n': int(c['frames'].shape[0]), 'loop': c['loop'], 'fps': 15}
+        zj[k] = {'vo': vo, 'nv': len(P), 'io': io_, 'ni': int(len(s['I'])), 'nj': s['joints'], 'scale': round(sc, 5), 'clips': cl}
+        print('Zombie', k, 'Vertices', len(P), 'Gelenke', s['joints'], {cn: c['n'] for cn, c in cl.items()})
+    open(OUT + '/zombies.bin', 'wb').write(bytes(zb))
+    out['zombies'] = zj
+    print('zombies.bin', len(zb) // 1024, 'KB')
 json.dump(out, open(OUT + '/models.json', 'w'), separators=(',', ':'))
 print('Vertices', nverts, 'Stadt', nverts - city_start, 'Datei', os.path.getsize(OUT + '/models.bin') // 1024, 'KB')

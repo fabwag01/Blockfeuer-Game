@@ -4,7 +4,7 @@ Ein 3D-Shooter im Stil von CS, der komplett im Browser läuft. Über **GitHub Pa
 
 - **Spielmodi:** Gun Game (zwei Kills = nächste Waffe, Messer-Kill auf der letzten Stufe gewinnt), Deathmatch (freie Waffenwahl, 40 Kills gewinnen) und **Punkt erobern** (Team Blau gegen Rot, 180 Punkte gewinnen)
 - **Karten:** Altstadt (groß, mit Kenney-Stadthäusern, Straßen, Platz, Park, Parkplatz, Baustelle und begehbaren Häusern) und Wüstendorf (klein und schnell)
-- **3D-Modelle:** Waffen aus dem *Ultimate Gun Pack* von Quaternius, Gebäude und Skyline aus dem *City Kit (Commercial)* von Kenney – beide CC0
+- **3D-Modelle:** Waffen aus dem *Ultimate Gun Pack* von Quaternius, Gebäude und Skyline aus dem *City Kit (Commercial)* von Kenney, animierte Zombies, Fahrzeuge und Endzeit-Requisiten aus dem *Zombie Apocalypse Kit* (Quaternius), Bäume, Kakteen und Felsen aus dem *Ultimate Nature Pack* (Quaternius), Autos, Ampeln und Müllcontainer aus *KayKit City Builder Bits*, Möbel aus dem *Furniture Kit* (Kenney) und Laternen aus *City Kit Roads* (Kenney) – alle CC0
 - **Loadout vor jedem Spawn:** Primär- und Sekundärwaffe, Visier (Kimme & Korn, Rotpunkt, Holo, ACOG, Zielfernrohr), Mündung (Schalldämpfer, Kompensator), Unterlauf (Vertikalgriff, Winkelgriff, Laser) und Magazin (erweitert, Schnellzieh)
 - **Zielen über das Visier** mit Rechtsklick, **Nachladeanimationen** (Magazin fällt zu Boden, Patronen einzeln, Revolvertrommel, Pumpe, Kammerstängel)
 - **Grafik:** Low-Poly-Stil mit flächigen Materialien, Echtzeit-Schatten, spiegelnde Fenster, Himmel mit Wolken, drei Qualitätsstufen (Standard: Mittel)
@@ -118,7 +118,7 @@ Messer-Skins gibt es nur ab Legendär. Das Inventar gehört zum Browser (keine B
 In der Lobby **Zombies** wählen – die Karte „Tankstelle“ wird automatisch gesetzt, Bots spielen nicht mit (nur ihr gemeinsam, bis 12 Spieler).
 
 - **Ablauf:** 12 Sekunden Vorbereitung, dann kommen die Zombies durch die Lücken im Zaun. Ist eine Welle komplett erledigt, gibt es 20 Sekunden Pause und einen Coin-Bonus. Jede Welle bringt mehr und stärkere Zombies.
-- **Zombie-Arten:** normale Zombies; ab Welle 3 schnelle **Läufer**; ab Welle 5 große **Kolosse** mit viel Leben und hartem Schlag. Kopfschüsse zählen mehr.
+- **Zombie-Arten:** normale Zombies (zwei Modelle); ab Welle 3 schnelle **Läufer** (Rippen-Zombie); ab Welle 5 große **Kolosse** mit viel Leben und hartem Schlag. Kopfschüsse zählen mehr. Alle Zombies sind animiert (Gehen, Rennen, Schlagen, Treffer-Reaktion, Sterben); Grafikkarten mit zu wenigen Shader-Registern bekommen automatisch die alten Kastenfiguren.
 - **Tod:** Wer stirbt, schaut zu und steigt in der nächsten Pause wieder ein. Sind alle gleichzeitig tot, ist das Spiel vorbei („Überrannt!“) und es geht zurück in die Lobby. Ab Welle 5 gibt es für alle ein Glückspaket.
 - **Coins:** Start mit 500 Coins und der Pistole. +1 pro Treffer, 10/15/60 pro Kill (Zombie/Läufer/Koloss), +5 für Kopfschuss-Kills, Bonus nach jeder Welle.
 - **Shop (Taste B, jederzeit – das Spiel läuft weiter!):**
@@ -169,7 +169,8 @@ Die Seite merkt selbst, ob sie von diesem Server kommt, und zeigt dann statt „
 | `host.js` | Spiellogik des Hosts: Treffer, Leben, Stufen, Runden, Bots. Läuft im Browser des Hosts (GitHub Pages) oder in `server.js` |
 | `net.js` | Verbindungen: Host im eigenen Browser, Beitritt per WebRTC/PeerJS, oder WebSocket zum eigenen Server |
 | `server.js` | Optionaler Node-Server (HTTP + WebSocket ohne Bibliotheken) |
-| `assets/models.bin`, `assets/models.json` | Aufbereitete 3D-Modelle (Waffen, Zubehör, Stadt mit drei Farbvarianten) |
+| `assets/models.bin`, `assets/models.json` | Aufbereitete 3D-Modelle (Waffen, Zubehör, Stadt mit drei Farbvarianten, Requisiten, Möbel, Pflanzen, Fahrzeuge) |
+| `assets/zombies.bin` | Animierte Zombies (Skinning auf der Grafikkarte; wird im Hintergrund nachgeladen) |
 | `tools/build_assets.py` | Erzeugt `assets/` aus den Original-Paketen (siehe unten) |
 
 Fehlen die Dateien in `assets/` (oder lädt man `index.html` direkt von der Festplatte), läuft das Spiel mit der eingebauten Klötzchen-Grafik weiter – Kollision und Spiellogik sind identisch.
@@ -179,9 +180,13 @@ Fehlen die Dateien in `assets/` (oder lädt man `index.html` direkt von der Fest
 `tools/build_assets.py` liest die Original-Pakete (OBJ-Waffen von Quaternius, GLB-Gebäude von Kenney), backt die Texturfarben in die Vertices, richtet die Waffen aus (Griff im Ursprung, Lauf nach vorn) und trennt bewegliche Teile (Magazin, Schlitten, Pumpe, Trommel, Zielfernrohr):
 
 ```bash
-pip install pillow
-python3 tools/build_assets.py Pfad/zum/Ultimate_Gun_Pack Pfad/zum/kenney_city-kit-commercial assets
+pip install pillow numpy
+python3 tools/build_assets.py Pfad/zum/Ultimate_Gun_Pack Pfad/zum/kenney_city-kit-commercial assets \
+  --zombie "Pfad/zum/Zombie Apocalypse Kit - March 2024" --nature Pfad/zum/Ultimate_Nature_Pack \
+  --kaykit Pfad/zu/KayKit_City_Builder_Bits_1.0_FREE --furniture Pfad/zum/kenney_furniture-kit --roads Pfad/zum/kenney_city-kit-roads
 ```
+
+Die fünf Zusatzpakete sind optional; ohne sie bleiben an den betreffenden Stellen die Klötzchen. Welche Modelle übernommen werden, steht in `PROPS` im Skript. Platziert werden sie in `shared.js` mit `Q`/`SQ` (`SQ` = punktsymmetrisch gespiegelt): Name wie `'nt:PineTree_1'`, Position, Drehung und Zielmaße in Metern. Die Modelle sind reine Optik – die Kollision kommt von unsichtbaren Kästen (`hide(true)`), damit Server und Browser immer dieselbe Karte haben.
 
 Welche Waffe welches Modell bekommt, steht oben im Skript (`GUNS`). Wo die Häuser stehen, steht in `buildStadt` in `shared.js` (`kblock` für Häuserblöcke, `row` für die Häuserzeilen am Kartenrand).
 
@@ -191,6 +196,10 @@ Technik in Kürze: Die Bewegung rechnet jeder Browser selbst (fühlt sich sofort
 
 - 3D-Waffen: **Ultimate Gun Pack** von [Quaternius](https://quaternius.com) – CC0 1.0
 - 3D-Gebäude: **City Kit (Commercial) 2.1** von [Kenney](https://www.kenney.nl) – CC0 1.0
+- Zombies, Fahrzeuge, Endzeit-Requisiten: **Zombie Apocalypse Kit** von [Quaternius](https://quaternius.com) – CC0 1.0
+- Bäume, Pflanzen, Felsen: **Ultimate Nature Pack** von [Quaternius](https://quaternius.com) – CC0 1.0
+- Autos, Ampeln, Müllcontainer: **City Builder Bits** von [KayKit](https://www.kaylousberg.com) – CC0 1.0
+- Möbel: **Furniture Kit** und Laternen: **City Kit Roads** von [Kenney](https://www.kenney.nl) – CC0 1.0
 - Peer-to-Peer-Verbindungen: [PeerJS](https://peerjs.com) – MIT-Lizenz
 
 Details in `CREDITS.md`.

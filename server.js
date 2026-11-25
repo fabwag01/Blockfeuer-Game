@@ -19,7 +19,7 @@ const host = GameHost.create({
 
 // ---------------------------------------------------------------- HTTP
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.bin': 'application/octet-stream', '.png': 'image/png', '.ico': 'image/x-icon' };
-const PUBLIC = new Set(['index.html', 'game.js', 'shared.js', 'host.js', 'net.js', 'assets/models.json', 'assets/models.bin']);
+const PUBLIC = new Set(['index.html', 'game.js', 'shared.js', 'host.js', 'net.js', 'assets/models.json', 'assets/models.bin', 'assets/zombies.bin']);
 const server = http.createServer((req, res) => {
   let url = decodeURIComponent((req.url || '/').split('?')[0]);
   if (url === '/favicon.ico') { res.writeHead(204); return res.end(); }

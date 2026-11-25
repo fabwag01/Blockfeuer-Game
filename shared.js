@@ -227,7 +227,12 @@
     const P = (k, x, z, ry, s, v, o) => { props.push({ m: kname(k), x, y: (o && o.y) || 0, z, ry, s, v: v || 0, far: !!(o && o.far) }); };
     const SP = (k, x, z, ry, s, v, o, v2) => { P(k, x, z, ry, s, v, o); P(k, -x, -z, ry + Math.PI, s, v2 === undefined ? (v + 1) % 3 : v2, o); };
     const hide = on => { hid = on ? 1 : 0; };
-    return { B, D, S, SD, P, SP, hide };
+    // Modell aus den Zusatzpaketen ('zk:Barrel' …): f = Zielmaße [Breite x, Höhe y, Tiefe z] im Modellraum,
+    // null = gleichmäßig aus den angegebenen Achsen, eine Zahl = nur die Höhe; o.org = am Modell-Ursprung (Stamm, Mast) statt an der Mitte ausrichten.
+    // Reine Optik – Kollision über B/S.
+    const Q = (m, x, z, ry, f, o) => { props.push({ m, x, y: (o && o.y) || 0, z, ry: ry || 0, f: typeof f === 'number' ? [null, f, null] : f, v: 0, far: !!(o && o.far), org: !!(o && o.org) }); };
+    const SQ = (m, x, z, ry, f, o) => { Q(m, x, z, ry, f, o); Q(m, -x, -z, (ry || 0) + Math.PI, f, o); };
+    return { B, D, S, SD, P, SP, hide, Q, SQ };
   }
   function seeded(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 
@@ -252,7 +257,8 @@
     S(8.6, 5, 9.4, 13.5, 0, 3.2, C.wall2, P);
     B(-1.6, -1.6, 1.6, 1.6, 0, 1.1, C.stone, MAT.stone);
     B(-0.5, -0.5, 0.5, 0.5, 1.1, 2.7, C.stone, MAT.stone);
-    S(-6.5, -11, -0.5, -8.6, 0, 2.6, C.blue, MAT.metal, C.red);
+    K.hide(true); S(-6.5, -11, -0.5, -8.6, 0, 2.6, C.blue, MAT.metal, C.red); K.hide(false);
+    K.Q('zk:Container_Green', -3.5, -9.8, 0, [6, 2.6, 2.4]); K.Q('zk:Container_Red', 3.5, 9.8, Math.PI, [6, 2.6, 2.4]);
     S(3, -6, 4.2, -4.8, 0, 1.1, C.wood, MAT.wood);
     S(4.2, -6, 5.4, -4.8, 0, 1.1, C.wood2, MAT.wood);
     S(3.6, -5.95, 4.8, -4.85, 1.1, 2.2, C.wood, MAT.wood);
@@ -266,7 +272,8 @@
     S(23, 0, 23.25, 8, 2.6, 3.6, C.trim, MAT.wood);
     S(23, -12, 28, -11.75, 2.6, 3.6, C.trim, MAT.wood);
     for (let i = 0; i < 9; i++) S(25, 8 + i * 0.55, 28, 8 + (i + 1) * 0.55, 0, 2.6 - (i + 1) * 0.26, C.stone, MAT.stone);
-    S(13, -4, 15.4, 2, 0, 2.6, C.green, MAT.metal, C.blue);
+    K.hide(true); S(13, -4, 15.4, 2, 0, 2.6, C.green, MAT.metal, C.blue); K.hide(false);
+    K.Q('zk:Container_Red', 14.2, -1, Math.PI / 2, [6, 2.6, 2.4]); K.Q('zk:Container_Green', -14.2, 1, -Math.PI / 2, [6, 2.6, 2.4]);
     S(15.4, -1.2, 16.6, 0, 0, 1.1, C.wood, MAT.wood);
     S(17, 6, 21, 6.6, 0, 1.3, C.wall2, P);
     S(18.5, -9, 19.7, -7.8, 0, 1.1, C.wood, MAT.wood);
@@ -284,6 +291,19 @@
     S(19.5, 15, 20, 17, 2.1, 3.2, C.trim, MAT.wood);
     S(11.8, 11.8, 20.2, 20, 3.2, 3.5, C.roof, MAT.roof);
     S(17.6, 18.2, 19, 19.4, 0, 1.0, C.wood, MAT.wood);
+    // Pflanzen und Felsen (Ultimate Nature Pack); schmale Kollision am Stamm bzw. Fels
+    const hide = K.hide, SQ = K.SQ;
+    const plant = (m, x, z, ry, h, cw, ch) => { hide(true); S(x - cw, z - cw, x + cw, z + cw, 0, ch, C.green, MAT.plain); hide(false); SQ(m, x, z, ry, h, { org: true }); };
+    plant('nt:PalmTree_1', -25, -17, 0.6, 5.2, 0.22, 4.2);
+    plant('nt:PalmTree_2', -24.5, -14.5, 2.3, 4.0, 0.2, 3.2);
+    plant('nt:CommonTree_Dead_2', 12, -19, 1.1, 3.6, 0.18, 2.6);
+    plant('nt:Cactus_2', -4, -18, 0.3, 1.7, 0.25, 1.6);
+    plant('nt:Cactus_1', 5, -9, 1.4, 1.0, 0.25, 0.95);
+    plant('nt:Cactus_3', 22, -7, 2.6, 1.4, 0.2, 1.35);
+    plant('nt:Rock_3', -14, 13, 0.8, 0.8, 0.4, 0.75);
+    plant('nt:Rock_1', -17, -5, 2.1, 0.9, 0.25, 0.85);
+    for (const [x, z, r] of [[-26.4, -18.6, 0.2], [-1.7, -17.4, 1.5], [15.2, -18.7, 2.8], [-20, 13.8, 0.9]]) SQ('nt:Rock_2', x, z, r, 0.4);
+    for (const [x, z, r] of [[-22.2, -18.3, 1.1], [3.2, -19.2, 0.4]]) SQ('nt:Plant_2', x, z, r, 0.9);
     const sp = [[18, -16], [25.5, -16.5], [20.5, 3], [16, 16.5], [0, -18.2], [5.5, -1]];
     const spawns = [];
     for (const s of sp) { spawns.push([s[0], 1.5, s[1]]); spawns.push([-s[0], 1.5, -s[1]]); }
@@ -295,7 +315,7 @@
 
   // --------------------------------------------------- Karte 2: Altstadt
   function buildStadt(K) {
-    const { B, S, SD, SP, hide } = K, HX = 46, HZ = 38;
+    const { B, S, SD, SP, SQ, hide } = K, HX = 46, HZ = 38;
     const C = {
       asphalt: [0.31, 0.31, 0.33], walk: [0.63, 0.61, 0.57], plaza: [0.68, 0.62, 0.53], stone: [0.66, 0.64, 0.6], stoneL: [0.78, 0.76, 0.72],
       brick: [0.6, 0.3, 0.22], brick2: [0.5, 0.33, 0.26], plY: [0.86, 0.76, 0.55], plW: [0.87, 0.85, 0.79], plB: [0.6, 0.67, 0.72], plR: [0.8, 0.52, 0.42], plG: [0.6, 0.7, 0.58],
@@ -406,7 +426,12 @@
         else S(lz(st.x1, st.x0, k1), st.z0, lz(st.x1, st.x0, k0), st.z1, yb, top, C.stone, M.stone);
       }
     }
+    const CARM = ['kk:car_sedan', 'kk:car_police', 'kk:car_stationwagon', 'kk:car_taxi', 'kk:car_hatchback', 'kk:car_sedan'];
     function car(x, z, dirX, c) {
+      hide(true); carBoxes(x, z, dirX, c); hide(false);
+      SQ(CARM[Math.max(0, C.cars.indexOf(c))], x, z, dirX ? Math.PI / 2 : 0, [1.95, null, 4.35]);
+    }
+    function carBoxes(x, z, dirX, c) {
       const L = 2.15, W = 0.9;
       const R = (a0, b0, a1, b1, y0, y1, cc, m, deco) => {
         const f = deco ? SD : S;
@@ -421,14 +446,25 @@
       R(-L - 0.03, -W + 0.15, -L, -W + 0.45, 0.7, 0.85, [0.9, 0.1, 0.08], M.lamp, true);
       R(-L - 0.03, W - 0.45, -L, W - 0.15, 0.7, 0.85, [0.9, 0.1, 0.08], M.lamp, true);
     }
+    const TREES = [['nt:CommonTree_3', 5.6], ['nt:BirchTree_2', 6], ['nt:CommonTree_4', 5.2], ['nt:BirchTree_1', 5.6]];
+    let treeN = 0;
     function tree(x, z, y) {
       y = y || 0;
+      hide(true);
       S(x - 0.18, z - 0.18, x + 0.18, z + 0.18, y, y + 2.6, C.trunk, M.wood);
       SD(x - 1.4, z - 1.4, x + 1.4, z + 1.4, y + 2.4, y + 4.1, C.leaves, M.grass);
       SD(x - 0.95, z - 0.95, x + 0.95, z + 0.95, y + 4.1, y + 5.2, C.leaves, M.grass);
+      hide(false);
+      const T = TREES[treeN % TREES.length];
+      SQ(T[0], x, z, treeN * 2.1 + 0.5, T[1], { y, org: true }); treeN++;
     }
     function lamp(x, z, y, dx, dz) {
       y = y || 0.15;
+      hide(true); lampBoxes(x, z, y, dx, dz); hide(false);
+      // Mast steht ~0.1 Modelleinheiten hinter der Mitte, der Arm zeigt in Modell-+z
+      SQ('rd:light_curved', x + dx * 0.55, z + dz * 0.55, Math.atan2(dx, dz), [0.15, 5.0, 1.3], { y });
+    }
+    function lampBoxes(x, z, y, dx, dz) {
       S(x - 0.08, z - 0.08, x + 0.08, z + 0.08, y, y + 5, C.dark, M.metal);
       const ex = x + dx * 1.2, ez = z + dz * 1.2;
       SD(Math.min(x, ex) - 0.05, Math.min(z, ez) - 0.05, Math.max(x, ex) + 0.05, Math.max(z, ez) + 0.05, y + 4.9, y + 5.0, C.dark, M.metal);
@@ -502,8 +538,14 @@
     kblock([5.5, -21, 10.5, -15], 'w', ['f'], 0, C.plB, M.plaster, {});
     block([6, -14.5, 10, -10.5], 3.4, C.plR, M.plaster, { shop: ['w', 's'], awn: C.awnB, start: 9 });
     kblock([13, -38, 22, -28], 'e', ['l'], 2, C.brick, M.brick, {});
-    S(10.6, -33, 11.5, -31, 0, 1.3, C.dump, M.metal);
-    S(14, -26.8, 16.2, -25.6, 0, 1.3, C.dump, M.metal);
+    hide(true); S(10.6, -33, 11.5, -31, 0, 1.3, C.dump, M.metal); S(14, -26.8, 16.2, -25.6, 0, 1.3, C.dump, M.metal); hide(false);
+    SQ('kk:dumpster', 11.05, -32, Math.PI / 2, [2.0, 1.3, 0.9]); SQ('kk:dumpster', 15.1, -26.2, 0, [2.2, 1.3, 1.2]);
+    SQ('zk:TrashBag_1', 11.0, -30.5, 0.4, 0.55); SQ('zk:TrashBag_1', 13.6, -25.9, 1.9, 0.5);
+    // Hydrant und Ampeln an den Kreuzungen
+    S(23.45, -30.15, 23.75, -29.85, 0.15, 0.9, C.awnR, M.paint, C.awnR);
+    SQ('kk:firehydrant', 23.6, -30, 0, 0.75, { y: 0.15, org: true });
+    S(23.6, -5.4, 23.8, -5.2, 0.15, 4.3, C.dark, M.metal); SQ('kk:trafficlight_B', 23.7, -5.3, Math.PI / 2, 4.2, { y: 0.15, org: true });
+    S(30.2, 5.2, 30.4, 5.4, 0.15, 4.3, C.dark, M.metal); SQ('kk:trafficlight_B', 30.3, 5.3, -Math.PI / 2, 4.2, { y: 0.15, org: true });
     S(19.5, -27.4, 20.7, -26.2, 0, 1.0, C.wood, M.wood);
     S(20.7, -27.4, 21.9, -26.2, 0, 1.0, C.wood, M.wood);
     S(20.1, -27.3, 21.3, -26.3, 1.0, 2.0, C.wood, M.wood);
@@ -522,19 +564,51 @@
       stairs: { x0: 19.9, z0: -21.8, x1: 21.7, z1: -17.6, dir: '+z' },
       rails: [[19.75, -21.95, 19.9, -18.3], [19.75, -21.95, 21.7, -21.8]]
     });
-    S(13.4, -22.6, 14.6, -21.4, 0.05, 1.15, C.wood, M.wood);
-    S(15, -20.2, 16.6, -19.2, 3.4, 4.15, C.wood, M.wood);
-    S(14, -10.2, 15.4, -9.7, 3.4, 4.0, C.sand, M.sand);
-    S(16.3, -16.5, 17.5, -15.3, 0.05, 0.9, C.wood, M.wood);
+    // Einrichtung (Kenney Furniture Kit). Große Möbel haben Kollisionskästen, Kleinkram ist reine Optik.
+    const FY = 0.05, F2 = 3.4;
+    hide(true);
+    S(13.4, -22.6, 14.6, -21.4, FY, 1.15, C.wood, M.wood);
+    S(15, -20.2, 16.6, -19.2, F2, 4.15, C.wood, M.wood);
+    S(14, -10.2, 15.4, -9.7, F2, 4.0, C.sand, M.sand);
+    S(16.3, -16.5, 17.5, -15.3, FY, 0.9, C.wood, M.wood);
+    S(16.4, -22.7, 19.85, -21.85, FY, 0.95, C.wood, M.wood); S(16.4, -22.7, 17.4, -21.9, 0.95, 1.85, C.plW, M.metal);   // Küche
+    S(20.8, -12.65, 21.7, -10.55, FY, 0.8, C.awnB, M.plain); S(19.3, -12.25, 20.1, -10.95, FY, 0.5, C.wood, M.wood);      // Sofa, Couchtisch
+    S(13.3, -12.4, 13.8, -10.8, FY, 0.67, C.dark, M.wood);                                                              // TV-Schrank
+    S(13.3, -22.7, 15.1, -20.6, F2, F2 + 0.45, C.plW, M.plain); S(13.3, -16.95, 13.8, -16.05, F2, F2 + 1.9, C.wood, M.wood); // Bett, Regal
+    hide(false);
+    SQ('fu:cardboardBoxClosed', 14, -22, 0.1, [1.2, 0.75, 1.2], { y: FY }); SQ('fu:cardboardBoxOpen', 14, -22, 0.4, [0.75, 0.4, 0.55], { y: FY + 0.75 });
+    SQ('fu:table', 16.9, -15.9, 0, [1.2, 0.85, 1.2], { y: FY });
+    SQ('fu:chair', 16.9, -16.95, 0, 1.0, { y: FY }); SQ('fu:chair', 16.9, -14.85, Math.PI, 1.0, { y: FY });
+    SQ('fu:kitchenFridgeLarge', 16.9, -22.28, 0, [1.0, 1.8, 0.8], { y: FY });
+    SQ('fu:kitchenStove', 17.825, -22.27, 0, [0.85, 0.9, 0.85], { y: FY }); SQ('fu:kitchenSink', 18.675, -22.27, 0, [0.85, null, 0.85], { y: FY });
+    SQ('fu:kitchenCabinet', 19.475, -22.27, 0, [0.75, 0.9, 0.85], { y: FY }); SQ('fu:kitchenCoffeeMachine', 19.45, -22.4, 0, 0.36, { y: FY + 0.9 });
+    SQ('fu:rugRectangle', 17.3, -11.6, Math.PI / 2, [3.0, 0.02, 1.8], { y: FY });
+    SQ('fu:loungeSofa', 21.25, -11.6, -Math.PI / 2, [2.1, 0.95, 0.85], { y: FY }); SQ('fu:tableCoffee', 19.7, -11.6, Math.PI / 2, [1.3, 0.45, 0.8], { y: FY });
+    SQ('fu:cabinetTelevision', 13.55, -11.6, Math.PI / 2, [1.6, 0.62, 0.5], { y: FY }); SQ('fu:televisionModern', 13.55, -11.6, Math.PI / 2, [1.2, null, null], { y: FY + 0.62 });
+    SQ('fu:lampSquareFloor', 21.3, -9.75, 0, 1.7, { y: FY }); SQ('fu:pottedPlant', 13.75, -9.75, 0, 1.0, { y: FY });
+    SQ('fu:table', 15.8, -19.7, 0, [1.6, 0.75, 1.0], { y: F2 });
+    SQ('fu:chair', 15.8, -20.75, 0, 1.0, { y: F2 }); SQ('fu:chair', 15.8, -18.65, Math.PI, 1.0, { y: F2 });
+    SQ('fu:loungeSofa', 14.7, -9.95, Math.PI, [1.4, 0.6, 0.5], { y: F2 });
+    SQ('fu:bedDouble', 14.2, -21.65, 0, [1.8, 0.7, 2.1], { y: F2 }); SQ('fu:bookcaseOpen', 13.55, -16.5, Math.PI / 2, [0.9, 1.9, 0.5], { y: F2 });
+    SQ('fu:rugRound', 17, -14, 0, [2, 0.02, 2], { y: F2 }); SQ('fu:pottedPlant', 21.3, -9.75, 0, 1.0, { y: F2 });
     // Baustelle mit Gerüst
     kblock([32, -38, 46, -30], 's', ['k'], 1, C.concrete, M.concrete, { shop: ['s'], awn: C.awnB });
     kblock([39, -30, 46, -9], 'w', ['f', 'i', 'a'], 0, C.plW, M.plaster, { shop: ['w'], awn: C.awnG });
     S(32, -30, 32.3, -21, 0, 1.1, C.stone, M.stone);
     S(32, -17, 32.3, -9.6, 0, 1.1, C.stone, M.stone);
     S(32.3, -9.9, 36.4, -9.6, 0, 1.1, C.stone, M.stone);
+    hide(true);
     S(33, -28.5, 35.5, -22.5, 0, 2.6, C.orange, M.metal);
     S(33.1, -28, 35.4, -24, 2.6, 5.2, C.cBlue, M.metal);
     S(34, -19.5, 36.5, -13.5, 0, 2.6, C.cGreen, M.metal);
+    hide(false);
+    SQ('zk:Container_Red', 34.25, -25.5, Math.PI / 2, [6, 2.6, 2.5]);
+    SQ('zk:Container_Green', 34.25, -26, Math.PI / 2, [4, 2.6, 2.3], { y: 2.6 });
+    SQ('zk:Container_Green', 35.25, -16.5, -Math.PI / 2, [6, 2.6, 2.5]);
+    // Absperrung an der Einfahrt (Pylonen, Warnleuchten – reine Optik)
+    SQ('zk:TrafficCone_1', 32.7, -20.6, 0.3, 0.67); SQ('zk:TrafficCone_2', 32.6, -17.4, 1.2, 0.74); SQ('zk:TrafficCone_1', 33.4, -19.0, 2.0, 0.67);
+    SQ('rd:construction_light', 32.15, -21.25, Math.PI / 2, 0.45, { y: 1.1 }); SQ('rd:construction_light', 32.15, -17.25, Math.PI / 2, 0.45, { y: 1.1 });
+    SQ('zk:Pallet', 36.2, -11.3, 0.2, [0.9, null, 1.2]); SQ('zk:Pallet_Broken', 36.4, -12.6, 1.3, [0.9, null, 1.2]); SQ('zk:CinderBlock', 35.6, -11.0, 0.5, 0.25, { y: 0.15 });
     S(33, -12, 34.2, -10.8, 0, 1.1, C.wood, M.wood);
     S(37.4, -28, 39, -16, 3.0, 3.2, C.wood, M.wood);
     for (const z of [-28, -22, -16.2]) S(37.4, z, 37.56, z + 0.16, 0, 3.0, C.metal, M.metal);
@@ -552,6 +626,7 @@
     tree(8, 15.2, 0.15); tree(19, 13.6, 0.15); tree(18.5, 18.6, 0.15); tree(8.8, 20, 0.15);
     S(7, 17, 8.8, 17.5, 0.15, 0.6, C.wood, M.wood);
     lamp(11.4, 21.5, 0.15, 1, 0);
+    for (const [x, z, r] of [[9, 13.3, 0], [10.4, 13.2, 1.3], [14, 20.4, 2.2], [20.6, 13.6, 0.7], [20.8, 15.6, 2.9], [6.4, 19.5, 1.8]]) SQ(r > 1.5 ? 'nt:Flowers' : 'nt:Plant_1', x, z, r, r > 1.5 ? 0.6 : 0.45, { y: 0.15 });
     house([8, 25, 20, 36], {
       floors: 1, fh: 3.6, c: C.plR, m: M.plaster, floorC: [0.62, 0.55, 0.45],
       open: [
@@ -562,10 +637,21 @@
       ]
     });
     SD(8.6, 24.0, 19.6, 25.0, 2.8, 2.9, C.awnR, M.plain);
+    hide(true);
     S(15.5, 32, 19.5, 33, 0.05, 1.1, C.wood, M.wood);
     S(10, 27, 11, 28, 0.05, 0.75, C.wood, M.wood);
     S(10, 30, 11, 31, 0.05, 0.75, C.wood, M.wood);
     S(13, 28.6, 14, 29.6, 0.05, 0.75, C.wood, M.wood);
+    S(18.6, 34.85, 19.6, 35.7, 0.05, 1.85, C.plW, M.metal);
+    hide(false);
+    for (const x of [16, 17, 18, 19]) SQ('fu:kitchenBar', x, 32.5, Math.PI, [1.0, 1.05, 1.0], { y: 0.05 });
+    SQ('fu:kitchenCoffeeMachine', 18.8, 32.6, Math.PI, 0.42, { y: 1.1 }); SQ('fu:kitchenFridgeLarge', 19.1, 35.27, Math.PI, [1.0, 1.8, 0.8], { y: 0.05 });
+    for (const x of [16.2, 17.5, 18.8]) SQ('fu:stoolBar', x, 31.45, 0, 0.75, { y: 0.05 });
+    for (const [x, z] of [[10.5, 27.5], [10.5, 30.5], [13.5, 29.1]]) {
+      SQ('fu:tableRound', x, z, 0, [1, 0.75, 1], { y: 0.05 });
+      SQ('fu:chairCushion', x + 0.85, z, -Math.PI / 2, 0.95, { y: 0.05 }); SQ('fu:chairCushion', x - 0.85, z, Math.PI / 2, 0.95, { y: 0.05 });
+    }
+    SQ('fu:pottedPlant', 8.75, 25.75, 0, 1.1, { y: 0.05 }); SQ('fu:pottedPlant', 19.25, 25.75, 0, 1.1, { y: 0.05 }); SQ('fu:trashcan', 15.0, 25.7, 0, 0.6, { y: 0.05 });
     S(32, 9, 32.4, 13, 0, 0.8, C.stone, M.stone);
     S(32, 18, 32.4, 24, 0, 0.8, C.stone, M.stone);
     for (const x of [33, 35.6, 38.2, 40.8, 43.4]) { SD(x - 0.06, 9.8, x + 0.06, 14.6, 0, 0.012, C.mark, M.mark); SD(x - 0.06, 18.8, x + 0.06, 23.6, 0, 0.012, C.mark, M.mark); }
@@ -659,6 +745,14 @@
     // Waffentische hinten im Stand
     B(-11, 32.4, -5, 33.4, 0.12, 1.0, C.wood, M.wood); B(5, 32.4, 11, 33.4, 0.12, 1.0, C.wood, M.wood);
     B(-1.2, 32.6, 1.2, 33.6, 0.12, 0.9, C.dark, M.metal);
+    // Wald rund um den Stand (nur Kulisse hinter den Mauern)
+    D(-60, -70, -15, 60, -1, 0, C.grass, M.grass); D(15, -70, 60, 60, -1, 0, C.grass, M.grass); D(-15, -70, 15, -37, -1, 0, C.grass, M.grass); D(-15, 37, 15, 60, -1, 0, C.grass, M.grass);
+    const fr = seeded(5), FT = [['nt:CommonTree_3', 6.5], ['nt:PineTree_1', 7], ['nt:BirchTree_2', 7.5], ['nt:PineTree_2', 8], ['nt:CommonTree_4', 6]];
+    for (let i = 0; i < 34; i++) {
+      const side = i % 3, t = FT[i % FT.length], k = fr();
+      const x = side === 2 ? -14 + k * 28 : (side ? 1 : -1) * (17 + fr() * 14), z = side === 2 ? -40 - fr() * 10 : -34 + k * 72;
+      K.Q(t[0], x, z, fr() * 6, t[1] * (0.85 + fr() * 0.3), { org: true, far: true });
+    }
     const spawns = [[-6.5, 1, 29.5], [0, 1, 29.5], [6.5, 1, 29.5], [-2.2, 1, 30.5], [2.2, 1, 30.5]];
     return { HX, HZ, spawns, items: [], range: { line: 25, targets: [[-7, 15], [0, 15], [7, 15], [-7, 0], [0, 0], [7, 0], [-7, -25], [0, -25], [7, -25]] },
       env: { sun: [-0.4, 0.75, 0.5], sunCol: [3.3, 2.85, 2.2], ambT: [0.3, 0.36, 0.48], ambB: [0.2, 0.19, 0.15], fog: [0.78, 0.82, 0.86], fogD: 0.006, skyZ: [0.28, 0.5, 0.84], skyH: [0.86, 0.85, 0.82], sunC: [1, 0.88, 0.66], clouds: 0.4 } };
@@ -666,7 +760,7 @@
 
   // -------------------------------------------- Karte 4: Tankstelle (Zombies)
   function buildTanke(K) {
-    const { B, D, P } = K, HX = 34, HZ = 26, M = MAT;
+    const { B, D, P, Q, hide } = K, HX = 34, HZ = 26, M = MAT;
     const C = { asph: [0.24, 0.24, 0.26], grass: [0.27, 0.36, 0.2], walk: [0.5, 0.49, 0.46], wall: [0.82, 0.8, 0.74], red: [0.72, 0.14, 0.12], white: [0.9, 0.9, 0.88],
       glass: [0.16, 0.22, 0.28], dark: [0.13, 0.13, 0.15], metal: [0.4, 0.42, 0.45], fence: [0.5, 0.52, 0.55], wood: [0.5, 0.36, 0.22], sand: [0.6, 0.53, 0.38],
       rust: [0.45, 0.25, 0.14], lamp: [1, 0.86, 0.6], mark: [0.85, 0.82, 0.6], tree: [0.2, 0.3, 0.16], trunk: [0.3, 0.22, 0.15], barrel: [0.25, 0.42, 0.3] };
@@ -695,23 +789,62 @@
     B(sx0 + 0.3, sz0 + 0.3, sx1 - 0.3, sz1 - 0.3, 0, 0.06, [0.6, 0.6, 0.58], M.tiles);
     B(-14.5, -16.5, -11, -15.6, 0.06, 1.05, C.red, M.paint);                // Theke
     for (const x of [-9.5, -6.5]) B(x - 0.4, -16.8, x + 0.4, -13.2, 0.06, 1.9, C.metal, M.metal); // Regale
+    // Einrichtung: Kühlschränke an der Ostwand, Kasse, Kartons auf den Regalen
+    hide(true); B(-4.12, -17.7, -3.3, -15.6, 0.06, 1.86, C.white, M.metal); hide(false);
+    Q('fu:kitchenFridgeLarge', -3.71, -17.18, -Math.PI / 2, [1.04, 1.8, 0.82], { y: 0.06 }); Q('fu:kitchenFridgeLarge', -3.71, -16.13, -Math.PI / 2, [1.04, 1.8, 0.82], { y: 0.06 });
+    Q('fu:computerScreen', -12.2, -16.05, Math.PI, 0.45, { y: 1.05 }); Q('fu:kitchenCoffeeMachine', -14.0, -16.1, Math.PI, 0.4, { y: 1.05 });
+    for (const [x, z, r] of [[-9.5, -16.2, 0.2], [-9.5, -14.6, 1.6], [-6.5, -15.4, 2.6], [-6.5, -13.7, 0.9]]) Q(r > 1 ? 'fu:cardboardBoxOpen' : 'fu:cardboardBoxClosed', x, z, r, 0.45, { y: 1.9 });
+    Q('fu:trashcan', -8.0, -10.0, 0, 0.6, { y: 0.06 }); Q('fu:cardboardBoxClosed', -15.2, -10.0, 0.7, 0.5, { y: 0.06 });
+    Q('zk:Blood_2', -10.5, -12.5, 1.1, [null, null, 1.4], { y: 0.065 });
     // Zapfsäulen mit Dach
     for (const [x, z] of [[3, -6], [15, -6], [3, 4], [15, 4]]) B(x - 0.25, z - 0.25, x + 0.25, z + 0.25, 0, 4.6, C.white, M.paint);
     B(1.5, -7.5, 16.5, 5.5, 4.6, 5.1, C.white, M.paint); B(1.4, -7.6, 16.6, 5.6, 5.1, 5.6, C.red, M.paint);
     for (const z of [-3.5, 1.5]) { B(4.5, z - 0.7, 13.5, z + 0.7, 0, 0.25, C.walk, M.concrete); for (const x of [6.5, 11.5]) B(x - 0.4, z - 0.3, x + 0.4, z + 0.3, 0.25, 1.75, C.red, M.paint); }
     for (const x of [3, 9, 15]) D(x - 1.2, -1.2, x + 1.2, -0.6, 4.55, 4.6, C.lamp, M.lamp);
     // Wracks, Sandsäcke, Fässer, Container
-    const car = (x, z, c, rot) => { const L = rot ? [0.95, 2.1] : [2.1, 0.95]; B(x - L[0], z - L[1], x + L[0], z + L[1], 0.3, 0.95, c, M.paint); const T = rot ? [0.85, 1.1] : [1.1, 0.85]; B(x - T[0], z - T[1], x + T[0], z + T[1], 0.95, 1.45, C.glass, M.glass); };
-    car(-22, 4, C.rust, false); car(22, -15, [0.25, 0.3, 0.45], true); car(-4, 13, [0.6, 0.55, 0.2], false); car(24, 14, C.rust, false);
-    B(-27, -19, -21, -16.6, 0, 2.6, [0.2, 0.36, 0.5], M.metal);                     // Container
+    const car = (x, z, c, rot, m, ry, top) => {
+      hide(true);
+      const L = rot ? [0.95, 2.1] : [2.1, 0.95]; B(x - L[0], z - L[1], x + L[0], z + L[1], 0.3, 0.95, c, M.paint); const T = rot ? [0.85, 1.1] : [1.1, 0.85]; B(x - T[0], z - T[1], x + T[0], z + T[1], 0.95, top || 1.45, C.glass, M.glass);
+      hide(false);
+      Q(m, x, z, (rot ? 0 : Math.PI / 2) + (ry || 0), [2.0, null, 4.4]);
+    };
+    car(-22, 4, C.rust, false, 'zv:Vehicle_Pickup', 0.06); car(22, -15, [0.25, 0.3, 0.45], true, 'zv:Vehicle_Sports', Math.PI - 0.05); car(-4, 13, [0.6, 0.55, 0.2], false, 'zv:Vehicle_Pickup', Math.PI + 0.1); car(24, 14, C.rust, false, 'zv:Vehicle_Truck', -0.04, 2.3);
+    Q('zk:Wheel', -19.3, 5.6, 0.3, 0.2); Q('zk:Wheels_Stack', 20.1, -12.4, 0.8, 0.6); Q('zk:Wheel', 26.6, 15.9, 1.1, 0.2);
+    hide(true); B(-27, -19, -21, -16.6, 0, 2.6, [0.2, 0.36, 0.5], M.metal); hide(false);                     // Container
+    Q('zk:Container_Green', -24, -17.8, 0, [6, 2.6, 2.4]);
+    Q('zk:Pallet', -20.2, -16.0, 0.3, [0.9, null, 1.2]); Q('zk:Pallet', -20.2, -16.0, 0.5, [0.9, null, 1.2], { y: 0.14 }); Q('zk:Pallet_Broken', -27.8, -15.5, 1.2, [0.9, null, 1.2]);
     for (const [x, z] of [[-5.5, -6.5], [-2.5, -6.5]]) B(x - 1.2, z - 0.4, x + 1.2, z + 0.4, 0, 1.0, C.sand, M.sand); // Sandsäcke vor dem Shop
     B(-17.5, -7, -15.5, -6.2, 0, 1.0, C.sand, M.sand); B(18, 8, 20.4, 8.8, 0, 1.0, C.sand, M.sand); B(-18, 18, -15.6, 18.8, 0, 1.0, C.sand, M.sand);
-    for (const [x, z] of [[18.6, -1], [19.4, -0.2], [-20, 9], [8, 19], [27, -6], [-26, -6]]) B(x - 0.35, z - 0.35, x + 0.35, z + 0.35, 0, 1.05, C.barrel, M.metal);
+    hide(true); for (const [x, z] of [[18.6, -1], [19.4, -0.2], [-20, 9], [8, 19], [27, -6], [-26, -6]]) B(x - 0.35, z - 0.35, x + 0.35, z + 0.35, 0, 1.05, C.barrel, M.metal); hide(false);
+    [[18.6, -1], [19.4, -0.2], [-20, 9], [8, 19], [27, -6], [-26, -6]].forEach(([x, z], i) => Q('zk:Barrel', x, z, i * 1.3, [0.7, 1.05, 0.7]));
+    // Straßensperre, Pylonen, Müll, Blut
+    hide(true); B(6.22, 10.06, 7.78, 10.94, 0, 1.1, C.white, M.paint); B(-12.78, 15.06, -11.22, 15.94, 0, 1.1, C.white, M.paint); hide(false);
+    Q('zk:TrafficBarrier_1', 7, 10.5, 0, [1.56, 1.1, 0.88]); Q('zk:TrafficBarrier_1', -12, 15.5, Math.PI, [1.56, 1.1, 0.88]);
+    for (const [x, z, r, k] of [[9.2, 10.4, 0.3, 1], [10.1, 11.2, 1.6, 2], [-14.1, 15.1, 0.8, 1], [-1.2, 11.6, 2.3, 2], [15.6, -6.6, 0.5, 1]]) Q('zk:TrafficCone_' + k, x, z, r, k === 1 ? 0.67 : 0.74);
+    Q('zk:PlasticBarrier', 0.2, -7.4, 0.1, 0.6); Q('zk:PlasticBarrier', 17.6, 2.2, 1.5, 0.6);
+    for (const [x, z, r] of [[-15.6, -8.2, 0.2], [-15.0, -7.9, 1.4], [-2.6, -8.4, 2.6], [-26.5, -15.6, 0.8], [5.2, 17.6, 2.0]]) Q('zk:TrashBag_1', x, z, r, 0.55);
+    for (const [x, z, r, k] of [[-6.2, -3.5, 0.4, 1], [10.5, 2.0, 2.2, 3], [-21.5, 1.2, 1.4, 2], [20.5, 18.2, 0.2, 3], [-0.5, 19.6, 1.0, 1]]) Q('zk:Blood_' + k, x, z, r, k === 1 ? [3.0, null, null] : [1.6, null, null], { y: k === 1 || x > 15 || z > 9 ? 0.06 : 0.035 });
+    hide(true); B(-0.85, 7.8, -0.45, 8.2, 0, 0.8, C.red, M.paint); hide(false); Q('zk:FireHydrant', -0.65, 8, 0, 0.77);
     B(6, 18, 12, 20.5, 0, 1.2, C.wood, M.wood); B(-26, 10, -23, 13, 0, 1.4, C.wood, M.wood);
     // Laternen
-    for (const [x, z] of [[-24, 8], [-10, 8], [6, 8], [22, 8], [-24, -21], [26, 20]]) { B(x - 0.1, z - 0.1, x + 0.1, z + 0.1, 0, 5.2, C.dark, M.metal); D(x - 0.35, z - 0.35, x + 0.35, z + 0.35, 5.0, 5.2, C.lamp, M.lamp); }
+    for (const [x, z] of [[-24, 8], [-10, 8], [6, 8], [22, 8], [-24, -21], [26, 20]]) {
+      B(x - 0.1, z - 0.1, x + 0.1, z + 0.1, 0, 5.2, C.dark, M.metal);
+      const dz = z > 15 ? -1 : 1;
+      hide(true); D(x - 0.35, z - 0.35, x + 0.35, z + 0.35, 5.0, 5.2, C.lamp, M.lamp); hide(false);
+      Q('zk:StreetLights', x, z, dz > 0 ? 0 : Math.PI, 5.6, { org: true });
+    }
     // Bäume außerhalb des Zauns
-    for (const [x, z] of [[-33, -20], [-33, 0], [33, -10], [33, 8], [-12, 25], [14, -25], [26, 25], [-26, -25]]) { D(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 0, 2.4, C.trunk, M.wood); D(x - 1.3, z - 1.3, x + 1.3, z + 1.3, 2.2, 4.4, C.tree, M.grass); }
+    const TT = [['nt:PineTree_1', 4.8], ['nt:CommonTree_Dead_2', 5.2], ['nt:PineTree_2', 5.6], ['nt:BirchTree_Dead_1', 4.6]];
+    [[-33, -20], [-33, 0], [33, -10], [33, 8], [-12, 25], [14, -25], [26, 25], [-26, -25]].forEach(([x, z], i) => {
+      hide(true); D(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 0, 2.4, C.trunk, M.wood); D(x - 1.3, z - 1.3, x + 1.3, z + 1.3, 2.2, 4.4, C.tree, M.grass); hide(false);
+      Q(TT[i % 4][0], x, z, i * 1.9, TT[i % 4][1], { org: true });
+    });
+    for (const [x, z, r] of [[-33.2, -14, 0.5], [32.8, 16, 2.1], [-4, 25.2, 1.2], [20, -25.4, 2.8], [-33.4, 20, 0.2]]) Q(r > 1.5 ? 'nt:Bush_2' : 'nt:Bush_1', x, z, r, 1.1);
+    for (const [x, z, r] of [[-32.6, 6, 0.4], [33.4, -3, 1.7], [4, -25.6, 2.4]]) Q('nt:TreeStump', x, z, r, 0.55);
+    Q('nt:WoodLog', -29.5, 25, 0.3, 0.7); Q('nt:Rock_Moss_2', 30.5, -25.3, 0.8, 0.7);
+    // Wasserturm draußen in der Ecke
+    hide(true); B(31.8, 20.7, 34.4, 23.3, 0, 9.4, C.rust, M.metal); hide(false);
+    Q('zk:WaterTower', 33.1, 22, 0.4, 9.4);
     // Kulisse: Kenney-Häuser und Skyline hinter dem Zaun
     P('k', -14, -32, 0, [6, 6, 6], 2); P('a', 6, -31, 0, [7, 7, 7], 1); P('f', 22, -31.5, 0, [7, 7, 7], 0);
     P('j', 12, 33, Math.PI, [6.5, 6.5, 6.5], 0); P('i', -16, 33, Math.PI, [7, 7, 7], 2);

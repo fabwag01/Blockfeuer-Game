@@ -95,7 +95,7 @@ float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); 
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
 `;
-const PW = program(`
+const PWVS = `
 attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute vec2 aMA;
 uniform mat4 uVP, uM, uL;
 uniform float uNO; // Normalen-Versatz gegen Schattenakne (größer bei grober Schattenkarte)
@@ -112,7 +112,7 @@ void main(){
   }
   vL = uL * vec4(w.xyz + normalize(n) * uNO, 1.0);
   gl_Position = uVP * w;
-}`, PREC + `
+}`, PWFS = PREC + `
 varying vec3 vW, vN, vC; varying vec2 vMA; varying vec4 vL; varying vec3 vO, vNo;
 uniform vec3 uCol2;
 uniform vec3 uCam, uSun, uSunCol, uAmbT, uAmbB, uFog, uSkyZ, uSkyH;
@@ -224,11 +224,12 @@ void main(){
   float d = length(vW - uCam);
   col = mix(col, uFog, (1.0 - exp(-d * d * uFogD * uFogD)) * (1.0 - uEmis * 0.5));
   gl_FragColor = vec4(col, uAlpha);
-}`, ['aPos', 'aNor', 'aCol', 'aMA']);
+}`;
+const PW = program(PWVS, PWFS, ['aPos', 'aNor', 'aCol', 'aMA']);
+const PKFS = PREC + 'vec4 pk(float d){ vec4 e = fract(vec4(1.0, 255.0, 65025.0, 16581375.0) * d); return e - e.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0); }' +
+  'void main(){ gl_FragColor = pk(gl_FragCoord.z); }';
 const PSH = program(
-  'attribute vec3 aPos; uniform mat4 uL, uM; void main(){ gl_Position = uL * uM * vec4(aPos, 1.0); }',
-  PREC + 'vec4 pk(float d){ vec4 e = fract(vec4(1.0, 255.0, 65025.0, 16581375.0) * d); return e - e.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0); }' +
-  'void main(){ gl_FragColor = pk(gl_FragCoord.z); }', ['aPos']);
+  'attribute vec3 aPos; uniform mat4 uL, uM; void main(){ gl_Position = uL * uM * vec4(aPos, 1.0); }', PKFS, ['aPos']);
 const PS = program(
   'attribute vec2 aQ; varying vec2 v; void main(){ v = aQ; gl_Position = vec4(aQ, 0.9999, 1.0); }',
   PREC + 'varying vec2 v; uniform vec3 uF, uR, uU, uSun, uZ, uH, uSC; uniform float uT, uCl;' + NOISE + `
@@ -265,7 +266,8 @@ function loadModels() {
   if (window.BF_ASSETS_JS) { // Variante als Skript (für Umgebungen, die keine .bin-Dateien ausliefern)
     bar.style.width = '40%';
     return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = window.BF_ASSETS_JS; sc.onload = res; sc.onerror = () => rej(new Error('Skript')); document.head.appendChild(sc); })
-      .then(() => { const M = window.BF_MODELS, raw = atob(M.bin), u = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i); initModels(M.json, u.buffer); })
+      .then(() => { const M = window.BF_MODELS, b64 = x => { const raw = atob(x), u = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i); return u.buffer; };
+        initModels(M.json, b64(M.bin)); if (M.zbin && M.json.zombies) initZombies(M.json.zombies, b64(M.zbin)); })
       .catch(e => console.warn('3D-Modelle nicht geladen, nutze Ersatzgrafik:', e && e.message))
       .then(() => { bar.style.width = '100%'; bar.style.opacity = '0'; });
   }
@@ -283,7 +285,12 @@ function loadModels() {
     return pump();
   });
   return Promise.all([fetch(base + 'models.json').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }), bin])
-    .then(([j, b]) => { initModels(j, b); })
+    .then(([j, b]) => {
+      initModels(j, b);
+      // animierte Zombies werden im Hintergrund nachgeladen (bis dahin Kastenfiguren)
+      if (j.zombies) fetch(base + 'zombies.bin').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+        .then(zb => initZombies(j.zombies, zb)).catch(e => console.warn('Zombie-Modelle nicht geladen:', e && e.message));
+    })
     .catch(e => console.warn('3D-Modelle nicht geladen, nutze Ersatzgrafik:', e && e.message))
     .then(() => { bar.style.width = '100%'; bar.style.opacity = '0'; });
 }
@@ -308,6 +315,127 @@ function initModels(j, b) {
   }
   MD.ok = true;
 }
+// ------------------------------------- animierte Zombies (Quaternius Zombie Apocalypse Kit)
+// zombies.bin: je Typ Vertices (28 B: f32 xyz | i8 Normale | u8 rgb | u8 Gelenke x4 | u8 Gewichte x4), u16-Indizes,
+// Animationen als fertige Gelenkmatrizen (3x4) mit 15 Bildern/s. Gerechnet wird auf der Grafikkarte (Skinning im Vertex-Shader).
+const ZM = { ok: false, t: {}, vbuf: null, ibuf: null, PZ: null, PZS: null, tmp: null };
+function initZombies(J, b) {
+  let nj = 0; for (const k in J) nj = Math.max(nj, J[k].nj);
+  const maxU = gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS);
+  if (maxU < nj * 3 + 24) { console.warn('Zu wenige Shader-Uniforms für animierte Zombies (' + maxU + ') – nutze Kastenfiguren'); return; }
+  const skin = `
+attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute vec4 aJ; attribute vec4 aW;
+uniform mat4 uVP, uM, uL; uniform float uNO; uniform vec4 uJ[${nj * 3}]; uniform vec3 uTint;
+varying vec3 vW, vN, vC; varying vec2 vMA; varying vec4 vL; varying vec3 vO, vNo;
+vec3 tr(int i, vec4 p){ return vec3(dot(uJ[i], p), dot(uJ[i + 1], p), dot(uJ[i + 2], p)); }
+vec3 sk(vec4 p){
+  int a = int(aJ.x + 0.5) * 3, b = int(aJ.y + 0.5) * 3, c = int(aJ.z + 0.5) * 3, d = int(aJ.w + 0.5) * 3;
+  return (tr(a, p) * aW.x + tr(b, p) * aW.y + tr(c, p) * aW.z + tr(d, p) * aW.w) / max(dot(aW, vec4(1.0)), 0.001);
+}`;
+  try {
+    ZM.PZ = program(skin + `
+void main(){
+  vec3 sp = sk(vec4(aPos, 1.0)), sn = sk(vec4(aNor, 0.0));
+  vec4 w = uM * vec4(sp, 1.0); vec3 n = (uM * vec4(sn, 0.0)).xyz;
+  vW = w.xyz; vN = n; vC = aCol * uTint; vMA = vec2(0.0, -100.0); vO = sp; vNo = sn;
+  vL = uL * vec4(w.xyz + normalize(n) * uNO, 1.0);
+  gl_Position = uVP * w;
+}`, PWFS, ['aPos', 'aNor', 'aCol', 'aJ', 'aW']);
+    ZM.PZS = program(skin + `
+void main(){ gl_Position = uL * uM * vec4(sk(vec4(aPos, 1.0)), 1.0); vW = vN = vC = vO = vNo = vec3(0.0); vMA = vec2(0.0); vL = vec4(0.0); }`, PKFS, ['aPos', 'aNor', 'aCol', 'aJ', 'aW']);
+  } catch (e) { console.warn('Zombie-Shader:', e.message); return; }
+  // Indizes aller Typen in einen eigenen Puffer (ein Puffer darf nicht gleichzeitig Vertex- und Indexpuffer sein)
+  let ni = 0; for (const k in J) ni += J[k].ni;
+  const idx = new Uint16Array(ni); let io = 0;
+  for (const k in J) {
+    const e = J[k], src = new Uint16Array(b, e.io, e.ni);
+    idx.set(src, io);
+    const clips = {};
+    for (const c in e.clips) { const C = e.clips[c]; clips[c] = { n: C.n, loop: C.loop, fps: C.fps, f: new Float32Array(b.slice(C.o, C.o + C.n * e.nj * 48)) }; }
+    ZM.t[k] = { vo: e.vo, io: io * 2, ni: e.ni, nj: e.nj, scale: e.scale, clips };
+    io += e.ni;
+  }
+  ZM.vbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ZM.vbuf); gl.bufferData(gl.ARRAY_BUFFER, b, gl.STATIC_DRAW);
+  ZM.ibuf = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ZM.ibuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeBuf);
+  ZM.tmp = new Float32Array(nj * 12); ZM.tmp2 = new Float32Array(nj * 12);
+  ZM.H = { basic: 1.78, chubby: 1.82, ribcage: 1.62, arm: 2.4 };
+  ZM.ok = true;
+}
+// Pose eines Clips zur Zeit tt (Sekunden) in out schreiben, zwischen Bildern linear überblenden
+function zPose(T, clip, tt, out) {
+  const c = T.clips[clip] || T.clips.walk, n = T.nj * 12;
+  let f = Math.max(0, tt) * c.fps;
+  if (c.loop) f %= c.n; else f = Math.min(c.n - 1, f);
+  const i0 = Math.floor(f), i1 = c.loop ? (i0 + 1) % c.n : Math.min(c.n - 1, i0 + 1), a = f - i0, A = i0 * n, B = i1 * n, F = c.f;
+  for (let i = 0; i < n; i++) out[i] = F[A + i] + (F[B + i] - F[A + i]) * a;
+  return out;
+}
+function clipLen(T, clip) { const c = T.clips[clip]; return c ? c.n / c.fps : 1; }
+// Zombie-Typ (Server: 0 Schlurfer, 1 Renner, 2 Brocken) -> Modell
+function zModel(z) { return z.type === 1 ? 'ribcage' : z.type === 2 ? 'arm' : (Math.floor(z.seed * 3.7) % 3 === 0 ? 'chubby' : 'basic'); }
+// welcher Clip gerade läuft (mit kurzer Überblendung beim Wechsel)
+function zAnim(z, t, dead) {
+  const T = ZM.t[zModel(z)];
+  let clip, tt;
+  if (dead) { clip = 'death'; tt = t - z.t0; }
+  else if (t - z.atkT < Math.min(0.9, clipLen(T, 'attack'))) { clip = 'attack'; tt = t - z.atkT; }
+  else if (t - (z.flash || -9) < 0.35) { clip = 'hit'; tt = t - z.flash; }
+  else { clip = z.type === 1 || (z.spd || 0) > 2.6 ? 'run' : 'walk'; tt = z.ph / (Math.PI * 2) * clipLen(T, clip); }
+  const A = z.anim || (z.anim = { c: clip, t0: t, pc: null });
+  if (A.c !== clip) { A.pc = A.c; A.pt = A.lt; A.c = clip; A.t0 = t; }
+  A.lt = tt;
+  zPose(T, clip, tt, ZM.tmp);
+  const k = Math.min(1, (t - A.t0) / 0.18);
+  if (A.pc && k < 1) {
+    zPose(T, A.pc, A.pt + (t - A.t0), ZM.tmp2);
+    for (let i = 0, n = T.nj * 12; i < n; i++) ZM.tmp[i] = ZM.tmp2[i] + (ZM.tmp[i] - ZM.tmp2[i]) * k;
+  }
+  return T;
+}
+// alle Zombies und Leichen zeichnen; shadow = Schattenpass. U = Licht/Kamera-Werte des Bildes
+function drawZombiesGL(t, shadow, U) {
+  const P = shadow ? ZM.PZS : ZM.PZ, prev = curProg;
+  gl.useProgram(P.p);
+  if (shadow) gl.uniformMatrix4fv(P.u.uL, false, SH.L);
+  else {
+    gl.uniformMatrix4fv(P.u.uVP, false, U.vp); gl.uniformMatrix4fv(P.u.uL, false, SH.L);
+    gl.uniform3fv(P.u.uCam, U.eye); gl.uniform3fv(P.u.uSun, U.env.sun); gl.uniform3fv(P.u.uSunCol, U.env.sunCol); gl.uniform3fv(P.u.uAmbT, U.env.ambT); gl.uniform3fv(P.u.uAmbB, U.env.ambB);
+    gl.uniform3fv(P.u.uFog, U.env.fog); gl.uniform1f(P.u.uFogD, U.env.fogD); gl.uniform3fv(P.u.uSkyZ, U.env.skyZ); gl.uniform3fv(P.u.uSkyH, U.env.skyH);
+    gl.uniform4f(P.u.uFlash, U.lp[0], U.lp[1], U.lp[2], U.flashI);
+    gl.uniform1f(P.u.uShadowOn, U.shadows ? 1 : 0); gl.uniform1f(P.u.uShade, 1); gl.uniform1f(P.u.uSMS, U.shadows ? 0.75 / SH.size : 0); gl.uniform1f(P.u.uSMR, U.shadows ? SH.size : 1); gl.uniform1f(P.u.uNO, U.shadows ? 125 / SH.size : 0.06);
+    gl.uniform1i(P.u.uSM, 0); gl.uniform1f(P.u.uAlpha, 1);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, ZM.vbuf); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ZM.ibuf);
+  for (let i = 0; i < 5; i++) gl.enableVertexAttribArray(i);
+  let lastVo = -1;
+  const one = (z, dead) => {
+    const T = zAnim(z, t, dead), mk = zModel(z), sc = T.scale * PLAYER.H * S.ZTYPES[z.type].s / ZM.H[mk];
+    const sink = dead ? Math.max(0, t - z.t0 - 3.2) * 0.35 : 0;
+    const m = M.mul(M.trans(z.pos[0], z.pos[1] - sink, z.pos[2]), M.box(M.rotY(z.yaw + Math.PI), 0, 0, 0, sc, sc, sc));
+    if (T.vo !== lastVo) {
+      lastVo = T.vo;
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, T.vo); gl.vertexAttribPointer(1, 3, gl.BYTE, true, 28, T.vo + 12);
+      gl.vertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, true, 28, T.vo + 16); gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, false, 28, T.vo + 20);
+      gl.vertexAttribPointer(4, 4, gl.UNSIGNED_BYTE, true, 28, T.vo + 24);
+    }
+    gl.uniformMatrix4fv(P.u.uM, false, m);
+    gl.uniform4fv(P.u['uJ[0]'], ZM.tmp.subarray(0, T.nj * 12));
+    if (!shadow) {
+      const h = (z.seed * 13.37) % 1, tint = 0.86 + h * 0.26;
+      gl.uniform3f(P.u.uTint, tint, 0.9 + (1 - h) * 0.15, tint * 0.95);
+      gl.uniform1f(P.u.uEmis, !dead && t - (z.flash || -9) < 0.08 ? 0.45 : 0);
+    }
+    gl.drawElements(gl.TRIANGLES, T.ni, gl.UNSIGNED_SHORT, T.io);
+  };
+  for (const z of ZB.list.values()) one(z, false);
+  for (const c of ZB.corpses) one(c, true);
+  gl.disableVertexAttribArray(4); gl.disableVertexAttribArray(3); gl.disableVertexAttribArray(2);
+  if (shadow) gl.disableVertexAttribArray(1);
+  gl.useProgram(prev.p); curProg = prev; curEmis = curAlpha = -1;
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeBuf);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0); if (!shadow) gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+}
 // Ausschnitt [Start, Anzahl] aus dem Modellpuffer zeichnen (Würfelpuffer danach wiederherstellen)
 function drawMesh(m, r, emis, F) {
   if (!r) return;
@@ -331,21 +459,28 @@ function drawMesh(m, r, emis, F) {
 // Stadtmodell in die Weltgeometrie schreiben (gedreht, skaliert, Farbvariante)
 function writeProp(data, o, p, far) {
   const e = MD.json.city[p.m]; if (!e) return o;
-  const dv = MD.dv, cs = MD.json.cityStart, vo = p.v ? MD.json.varOffset[p.v - 1] : 0;
-  const cx = (e.min[0] + e.max[0]) / 2, cz = (e.min[2] + e.max[2]) / 2, y0 = e.min[1];
-  const c = Math.cos(p.ry), s = Math.sin(p.ry), sx = p.s[0], sy = p.s[1], sz = p.s[2];
+  const dv = MD.dv, vo = p.v && e.vb !== undefined ? MD.json.varOffset[p.v - 1] + (e.vb - e.r[0]) * 4 : 0;
+  const cx = p.org ? 0 : (e.min[0] + e.max[0]) / 2, cz = p.org ? 0 : (e.min[2] + e.max[2]) / 2, y0 = e.min[1];
+  let sc = p.s;
+  if (p.f) { // Zielmaße [Breite, Höhe, Tiefe] im Modellraum; fehlende Achsen = Mittel der angegebenen
+    const d = [0, 1, 2].map(k => Math.max(1e-3, e.max[k] - e.min[k])), q = p.f.map((v, k) => v == null ? null : v / d[k]), g = q.filter((v, k) => v != null && d[k] > 2e-3);
+    const avg = g.length ? g.reduce((a, b) => a + b, 0) / g.length : 1; // flache Achsen (Teppich, Blut) zählen nicht mit
+    sc = q.map(v => v == null ? avg : v);
+  }
+  const c = Math.cos(p.ry), s = Math.sin(p.ry), sx = sc[0], sy = sc[1], sz = sc[2];
+  const glass = e.vb !== undefined;
   for (let i = e.r[0], end = e.r[0] + e.r[1]; i < end; i++) {
     const q = i * 20;
     const X = (dv.getFloat32(q, true) - cx) * sx, Y = (dv.getFloat32(q + 4, true) - y0) * sy, Z = (dv.getFloat32(q + 8, true) - cz) * sz;
     let nx = dv.getInt8(q + 12) / sx, ny = dv.getInt8(q + 13) / sy, nz = dv.getInt8(q + 14) / sz;
     const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
     let r, g, b;
-    if (vo) { const k = vo + (i - cs) * 4; r = dv.getUint8(k); g = dv.getUint8(k + 1); b = dv.getUint8(k + 2); }
+    if (vo) { const k = vo + i * 4; r = dv.getUint8(k); g = dv.getUint8(k + 1); b = dv.getUint8(k + 2); }
     else { r = dv.getUint8(q + 16); g = dv.getUint8(q + 17); b = dv.getUint8(q + 18); }
     data[o++] = p.x + X * c + Z * s; data[o++] = p.y + Y; data[o++] = p.z - X * s + Z * c;
     data[o++] = nx * c + nz * s; data[o++] = ny; data[o++] = -nx * s + nz * c;
     data[o++] = r / 255; data[o++] = g / 255; data[o++] = b / 255;
-    data[o++] = b > 150 && b > r + 30 && g > r ? 9 : 0; // Fensterglas spiegelt
+    data[o++] = glass && b > 150 && b > r + 30 && g > r ? 9 : 0; // Fensterglas (Kenney-Gebäude) spiegelt
     data[o++] = far || ny > 0.7 ? -100 : (ny < -0.7 ? -1 : p.y);
   }
   return o;
@@ -1773,6 +1908,7 @@ function zTickClient(t, dt) {
     let dy = z.tyaw - z.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI; z.yaw += dy * k;
     const sp = Math.hypot(z.pos[0] - ox, z.pos[2] - oz) / Math.max(dt, 1e-3);
     z.ph += sp * dt * 2.2 / S.ZTYPES[z.type].s;
+    z.spd = (z.spd || 0) + (sp - (z.spd || 0)) * Math.min(1, dt * 6);
   }
   ZB.corpses = ZB.corpses.filter(c => t - c.t0 < 6);
   for (const u of ZB.turrets.values()) { let dy = u.tyaw - u.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI; u.yaw += dy * Math.min(1, dt * 10); }
@@ -2269,6 +2405,10 @@ function frame() {
     gl.drawArrays(gl.TRIANGLES, 0, solidVerts);
     gl.bindBuffer(gl.ARRAY_BUFFER, cubeBuf); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
     for (const p of players.values()) if (p.id !== myId || !me.alive) { if (p.id === myId) continue; drawPlayer(p, t); }
+    if (mode === 'zombies') {
+      if (ZM.ok) drawZombiesGL(t, true); else { for (const z of ZB.list.values()) drawZombie(z, t, 0); for (const c of ZB.corpses) drawZombie(c, t, 1); }
+      for (const u of ZB.turrets.values()) drawTurret(u, t);
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
   gl.viewport(0, 0, W, H);
@@ -2308,7 +2448,10 @@ function frame() {
     drawBox(M.box(m, 0, 0, 0, 0.44, 0.1, 0.1, TMP), [0.1, 0.75, 0.2], 0.6); drawBox(M.box(m, 0, 0, 0, 0.1, 0.1, 0.44, TMP), [0.1, 0.75, 0.2], 0.6);
   }
   if (mode === 'range') { for (const g of RG.fixed) drawTarget(g, t); for (const g of RG.tg) drawTarget(g, t); }
-  if (mode === 'zombies') { for (const z of ZB.list.values()) drawZombie(z, t, 0); for (const c of ZB.corpses) drawZombie(c, t, 1); for (const u of ZB.turrets.values()) drawTurret(u, t); }
+  if (mode === 'zombies') {
+    if (ZM.ok) drawZombiesGL(t, false, { vp, eye, env, lp: fx.lightP, flashI, shadows }); else { for (const z of ZB.list.values()) drawZombie(z, t, 0); for (const c of ZB.corpses) drawZombie(c, t, 1); }
+    for (const u of ZB.turrets.values()) drawTurret(u, t);
+  }
   if (teamMode() && MAP.point) {
     const P = MAP.point, own = CP.owner, cc = own >= 0 ? hsl(TEAMS[own].hue, 0.75, 0.5) : [0.85, 0.85, 0.85];
     const segs = 28;
@@ -2428,6 +2571,6 @@ applyCfg('stadt', 'gungame', 25);
 setupShadow();
 loadModels().then(() => { if (MD.ok) { buildWorld(); setupLight(); } });
 // Testzugriff für die Konsole
-window.BF = { me, players, LO, PK, NET, SH, gl, PW, MD, GUN, verts: () => [solidVerts, allVerts], RG, ZB, rangeRay, eyePos, setT: (k, v) => { me[k] = v; }, state: () => ({ joined, gameState, locked, softLock, myId, mode, mapId }), send, debugLock(v) { setLocked(v); }, startReload, openLoadout, confirmLoadout, stOf, cam, startGame };
+window.BF = { me, players, LO, PK, NET, SH, gl, PW, MD, ZM, GUN, verts: () => [solidVerts, allVerts], RG, ZB, rangeRay, eyePos, setT: (k, v) => { me[k] = v; }, state: () => ({ joined, gameState, locked, softLock, myId, mode, mapId }), send, debugLock(v) { setLocked(v); }, startReload, openLoadout, confirmLoadout, stOf, cam, startGame };
 requestAnimationFrame(frame);
 })();
