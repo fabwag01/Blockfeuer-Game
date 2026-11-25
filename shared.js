@@ -148,10 +148,12 @@
 
   // ------------------------------------------------------------- Spielmodi
   const MODES = {
-    gungame: { n: 'Gun Game', d: 'Jeder Kill = nächste Waffe. Messer-Kill auf der letzten Stufe gewinnt.' },
-    dm:      { n: 'Deathmatch', d: 'Freie Waffenwahl. Wer zuerst 25 Kills hat, gewinnt.', limit: 25 }
+    gungame: { n: 'Gun Game', d: 'Zwei Kills = nächste Waffe. Messer-Kill auf der letzten Stufe gewinnt.', kpl: 2 },
+    dm:      { n: 'Deathmatch', d: 'Freie Waffenwahl. Wer zuerst 40 Kills hat, gewinnt.', limit: 40 },
+    ctp:     { n: 'Punkt erobern', d: 'Team Blau gegen Team Rot. Erobert den Punkt in der Mitte und haltet ihn – 1 Punkt pro Sekunde, 180 gewinnen.', limit: 180, teams: true, capTime: 7 }
   };
   // welche Waffe hält ein Spieler in einem Slot? 0 = Primär, 1 = Sekundär, 2 = Messer
+  const TEAMS = [{ n: 'Blau', hue: 212, css: '#4f8dff' }, { n: 'Rot', hue: 4, css: '#ff4f45' }];
   function slotWeapon(mode, lvl, lo, slot) {
     if (slot === 2) return 'knife';
     if (mode === 'gungame') return slot === 0 ? LADDER[Math.max(0, Math.min(LADDER.length - 1, lvl | 0))] : null;
@@ -254,7 +256,7 @@
     const spawns = [];
     for (const s of sp) { spawns.push([s[0], 1.5, s[1]]); spawns.push([-s[0], 1.5, -s[1]]); }
     return {
-      HX, HZ, spawns, items: [[0, 1, -12.6], [0, 1, 12.6], [25.5, 3.6, -10], [-25.5, 3.6, 10]],
+      HX, HZ, spawns, items: [[0, 1, -12.6], [0, 1, 12.6], [25.5, 3.6, -10], [-25.5, 3.6, 10]], point: [0, 0, 0, 4.2],
       env: { sun: [0.45, 0.8, 0.35], sunCol: [3.3, 2.95, 2.4], ambT: [0.32, 0.37, 0.48], ambB: [0.26, 0.21, 0.15], fog: [0.88, 0.82, 0.7], fogD: 0.009, skyZ: [0.26, 0.48, 0.8], skyH: [0.9, 0.84, 0.72], sunC: [1, 0.9, 0.7], clouds: 0.35 }
     };
   }
@@ -597,7 +599,7 @@
     for (const s of spawnsHalf) { spawns.push([s[0], 2.4, s[1]]); spawns.push([-s[0], 2.4, -s[1]]); }
     const items = [[17.5, 4.4, -20], [-17.5, 4.4, 20], [35.5, 1, -11], [-35.5, 1, 11], [0, 1, -7.5], [0, 1, 7.5]];
     return {
-      HX, HZ, spawns, items,
+      HX, HZ, spawns, items, point: [0, 0.15, 0, 5.2],
       env: { sun: [-0.55, 0.6, 0.48], sunCol: [3.3, 2.65, 1.9], ambT: [0.27, 0.33, 0.46], ambB: [0.17, 0.15, 0.13], fog: [0.74, 0.75, 0.79], fogD: 0.0075, skyZ: [0.3, 0.5, 0.82], skyH: [0.86, 0.82, 0.78], sunC: [1, 0.82, 0.58], clouds: 0.5 }
     };
   }
@@ -616,7 +618,7 @@
     const res = MAPS[id].build(makeCtx());
     hid = 0;
     MAP.id = id; MAP.name = MAPS[id].n; MAP.boxes = boxes; MAP.deco = deco; MAP.props = props;
-    MAP.HX = res.HX; MAP.HZ = res.HZ;
+    MAP.HX = res.HX; MAP.HZ = res.HZ; MAP.point = res.point;
     const env = res.env, l = Math.hypot(env.sun[0], env.sun[1], env.sun[2]);
     env.sun = env.sun.map(v => v / l);
     MAP.env = env;
@@ -739,7 +741,7 @@
   setMap('stadt');
 
   return {
-    RARITY, FINISHES, rollSkin, skinInfo,
+    RARITY, FINISHES, rollSkin, skinInfo, TEAMS,
     WEAPONS, LADDER, PRIMARY, SECONDARY, CLASS_NAME, ATT, ATT_SLOTS, ATT_SLOT_NAME, NADES, PLAYER, MODES, MAPS, MAT, MAP,
     compat, stats, sanitizeLoadout, randomLoadout, slotWeapon, setMap, groundAt,
     rayBoxes, rayPlayer, losClear, segSphere, collide, pointSolid, stepNade, falloff, zoneMult

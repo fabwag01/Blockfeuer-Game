@@ -2,12 +2,12 @@
 
 Ein 3D-Shooter im Stil von CS, der komplett im Browser läuft. Über **GitHub Pages** liegt das Spiel unter einer festen Adresse im Netz: Einer klickt auf **Spiel erstellen**, schickt den Link herum, alle anderen klicken nur noch auf **Beitreten** – keine Installation, kein Server, kein Account.
 
-- **Spielmodi:** Gun Game (jeder Kill = nächste Waffe, Messer-Kill auf der letzten Stufe gewinnt) und Deathmatch (freie Waffenwahl, wer zuerst 25 Kills hat, gewinnt)
+- **Spielmodi:** Gun Game (zwei Kills = nächste Waffe, Messer-Kill auf der letzten Stufe gewinnt), Deathmatch (freie Waffenwahl, 40 Kills gewinnen) und **Punkt erobern** (Team Blau gegen Rot, 180 Punkte gewinnen)
 - **Karten:** Altstadt (groß, mit Kenney-Stadthäusern, Straßen, Platz, Park, Parkplatz, Baustelle und begehbaren Häusern) und Wüstendorf (klein und schnell)
 - **3D-Modelle:** Waffen aus dem *Ultimate Gun Pack* von Quaternius, Gebäude und Skyline aus dem *City Kit (Commercial)* von Kenney – beide CC0
 - **Loadout vor jedem Spawn:** Primär- und Sekundärwaffe, Visier (Kimme & Korn, Rotpunkt, Holo, ACOG, Zielfernrohr), Mündung (Schalldämpfer, Kompensator), Unterlauf (Vertikalgriff, Winkelgriff, Laser) und Magazin (erweitert, Schnellzieh)
 - **Zielen über das Visier** mit Rechtsklick, **Nachladeanimationen** (Magazin fällt zu Boden, Patronen einzeln, Revolvertrommel, Pumpe, Kammerstängel)
-- **Grafik:** Echtzeit-Schatten, spiegelnde Fenster, Materialien, Himmel mit Wolken, drei Qualitätsstufen
+- **Grafik:** Low-Poly-Stil mit flächigen Materialien, Echtzeit-Schatten, spiegelnde Fenster, Himmel mit Wolken, drei Qualitätsstufen (Standard: Mittel)
 - **Utility:** HE-, Blend- und Rauchgranate, Medipacks
 - **Belohnung:** Wer eine Runde gewinnt, öffnet ein Glückspaket mit einem zufälligen Waffen-Skin
 - **Außerdem:** Scoreboard (Tab), Killfeed, Chat, Kopfschüsse, Bots in drei Stärken, bis zu 12 Spieler
@@ -59,8 +59,9 @@ Gut zu wissen:
 | Maus | Zielen, Linksklick schießen |
 | Rechtsklick | Über das Visier zielen (Halten oder Umschalten, einstellbar) |
 | Leertaste | Springen |
-| Shift | Schleichen (langsam, keine Schrittgeräusche, genauer) |
-| C | Ducken (genauer) |
+| Shift | Sprinten (nur vorwärts; beim Sprinten kein Schießen und Zielen) |
+| Strg oder C | Ducken (genauer) |
+| X | Leise gehen (langsam, keine Schrittgeräusche) |
 | R | Nachladen (bei der Schrotflinte: Schießen bricht das Nachladen ab) |
 | 1 / 2 / 3 / Q | Primärwaffe / Sekundärwaffe / Messer / letzte Waffe |
 | 4 / 5 / 6 | HE- / Blend- / Rauchgranate (G wechselt durch) |
@@ -68,7 +69,9 @@ Gut zu wissen:
 | Enter | Chat |
 | Esc | Menü: Loadout, Karte & Modus, Bots, Maus, Sichtfeld, Lautstärke, Grafik, Einladungslink |
 
-Ducken liegt absichtlich auf **C** statt Strg: Strg+W würde im Browser den Tab schließen. Läuft das Spiel ruckelig: **Esc → Grafik → Mittel** oder **Niedrig** (Niedrig schaltet die Schatten ab).
+**Strg+W:** Wer geduckt vorwärts läuft, drückt Strg+W – das schließt normalerweise den Browser-Tab. Im Spiel fragt der Browser deshalb vorher nach („Seite verlassen?“ → *Abbrechen*). Sicherer ist **Esc → Vollbild**: Im Vollbild sperrt das Spiel die Tastenkombination (Chrome/Edge). Alternativ duckt auch **C**.
+
+Läuft das Spiel ruckelig: **Esc → Grafik → Niedrig** (schaltet die Schatten ab und rendert mit geringerer Auflösung).
 
 ## Loadout und Aufsätze
 
@@ -101,8 +104,9 @@ Messer-Skins gibt es nur ab Legendär. Das Inventar gehört zum Browser (keine B
 
 ## Regeln im Detail
 
-- **Gun Game:** Kill mit der Stufenwaffe oder HE-Granate = +1 Stufe. Messer-Kills bringen +1 Stufe und klauen dem Opfer eine Stufe. Selbstmord kostet eine Stufe. Ein Messer-Kill auf der letzten Stufe gewinnt.
-- **Deathmatch:** Wer zuerst 25 Kills hat, gewinnt. Selbstmord kostet einen Kill.
+- **Gun Game:** Zwei Kills mit der Stufenwaffe oder HE-Granate = +1 Stufe. Ein Messer-Kill bringt sofort +1 Stufe und klaut dem Opfer eine Stufe. Selbstmord kostet den Fortschritt bzw. eine Stufe. Ein Messer-Kill auf der letzten Stufe gewinnt.
+- **Deathmatch:** Wer zuerst 40 Kills hat, gewinnt. Selbstmord kostet einen Kill.
+- **Punkt erobern:** Zwei Teams (Blau startet im Osten, Rot im Westen, Bots werden aufgeteilt, kein Eigenbeschuss). Steht nur ein Team im leuchtenden Ring in der Kartenmitte, erobert es den Punkt in etwa 7 Sekunden (mit mehr Spielern schneller). Ist der Gegner auch im Ring, ist der Punkt umkämpft. Das Team, das den Punkt hält, bekommt 1 Punkt pro Sekunde; 180 Punkte gewinnen. Jeder Spieler des Siegerteams erhält ein Glückspaket.
 - Jeder Kill heilt 30 HP. Nach dem Spawn gibt es 1,8 s Spawnschutz (endet beim ersten eigenen Schuss).
 - Karte und Modus wechselt jeder Spieler über **Esc → Spiel → Neue Runde mit dieser Auswahl**.
 
@@ -123,7 +127,7 @@ Die Seite merkt selbst, ob sie von diesem Server kommt, und zeigt dann statt „
 | `BOTS` | Anzahl Bots beim Start (0–8) | 2 |
 | `BOT_SKILL` | 0 = leicht, 1 = mittel, 2 = schwer | 1 |
 | `MAP` | `stadt` oder `wueste` | stadt |
-| `MODE` | `gungame` oder `dm` | gungame |
+| `MODE` | `gungame`, `dm` oder `ctp` (Punkt erobern) | gungame |
 
 ## Aufbau
 

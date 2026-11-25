@@ -23,8 +23,20 @@ function create(opts) {
   let nades = [], smokes = [], items = [];
   let botSkill = Math.max(0, Math.min(2, opts.botSkill === undefined ? 1 : +opts.botSkill | 0));
   const BOT_NAMES = ['Bot Alfred', 'Bot Berta', 'Bot Clemens', 'Bot Dora', 'Bot Emil', 'Bot Frieda', 'Bot Gustl', 'Bot Hansi'];
-  const SKILLS = [{ err: 0.08, react: 700 }, { err: 0.05, react: 430 }, { err: 0.028, react: 260 }];
-  const DM_LIMIT = S.MODES.dm.limit;
+  const SKILLS = [{ err: 0.13, react: 1000, burst: 4 }, { err: 0.085, react: 680, burst: 6 }, { err: 0.05, react: 430, burst: 9 }];
+  const DM_LIMIT = S.MODES.dm.limit, CTP_LIMIT = S.MODES.ctp.limit, KPL = S.MODES.gungame.kpl;
+  const teamMode = () => !!S.MODES[mode].teams;
+  const mate = (a, b) => teamMode() && a && b && a !== b && a.team === b.team;
+  // Eroberungspunkt: owner/cap = Team (-1 = keins), prog 0..1, Punkte je Team
+  let cp = { owner: -1, cap: -1, prog: 0, score: [0, 0], n: [0, 0] };
+  function resetCP() { cp = { owner: -1, cap: -1, prog: 0, score: [0, 0], n: [0, 0] }; }
+  function teamCount(tm) { let n = 0; for (const p of players.values()) if (p.team === tm) n++; return n; }
+  function pickTeam() { return teamCount(0) <= teamCount(1) ? 0 : 1; }
+  function setTeams() { // nach Moduswechsel ausgleichen: abwechselnd Menschen, dann Bots
+    const list = [...players.values()].sort((a, b) => (a.bot - b.bot) || (a.id - b.id));
+    list.forEach((p, i) => { p.team = i % 2; p.hue = teamMode() ? S.TEAMS[p.team].hue : (p.id * 137) % 360; });
+    broadcast({ t: 'teams', l: list.map(p => [p.id, p.team, p.hue]) });
+  }
 
   const now = () => Date.now();
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -43,16 +55,17 @@ function create(opts) {
     const txt = JSON.stringify(obj);
     for (const p of players.values()) if (p.conn && p !== except) p.conn.sendText(txt);
   }
-  function info(p) { return { id: p.id, name: p.name, lvl: p.lvl, kills: p.kills, deaths: p.deaths, alive: p.alive, bot: p.bot, hue: p.hue, ping: p.ping, lo: p.lo }; }
+  function info(p) { return { id: p.id, name: p.name, lvl: p.lvl, prog: p.prog, kills: p.kills, deaths: p.deaths, alive: p.alive, bot: p.bot, hue: p.hue, team: p.team, ping: p.ping, lo: p.lo }; }
 
   function makePlayer(name, conn, bot) {
     const p = {
       id: nextId++, name, conn, bot: !!bot, p: [0, 0, 0], yaw: 0, pitch: 0, fl: 0, slot: 0,
-      hp: 100, alive: false, ready: !!bot, lvl: 0, kills: 0, deaths: 0, respawnAt: 0, lastShot: {}, lastNade: 0,
+      hp: 100, alive: false, ready: !!bot, lvl: 0, prog: 0, team: 0, kills: 0, deaths: 0, respawnAt: 0, lastShot: {}, lastNade: 0,
       hist: [], protUntil: 0, ping: 0, nades: { he: 1, flash: 1, smoke: 1 }, ai: null,
       lo: bot ? S.randomLoadout() : S.sanitizeLoadout(null), loNext: null
     };
-    p.hue = (p.id * 137) % 360;
+    p.team = pickTeam();
+    p.hue = teamMode() ? S.TEAMS[p.team].hue : (p.id * 137) % 360;
     players.set(p.id, p);
     return p;
   }
@@ -64,9 +77,12 @@ function create(opts) {
   }
   function spawnPlayer(p) {
     // Spawnpunkt mit größtem Abstand zu lebenden Gegnern (zufällig unter den besten drei)
-    const scored = MAP.spawns.map(s => {
+    // Team-Modus: Blau startet im Osten, Rot im Westen, nie direkt am Punkt
+    const P = MAP.point;
+    const pool = teamMode() ? MAP.spawns.filter(s => ((s[0] + s[2] * 0.01 >= 0) ? 0 : 1) === p.team && (!P || Math.hypot(s[0] - P[0], s[2] - P[2]) > P[3] + 3)) : MAP.spawns;
+    const scored = pool.map(s => {
       let d = 999;
-      for (const q of players.values()) if (q !== p && q.alive) d = Math.min(d, Math.hypot(q.p[0] - s[0], q.p[2] - s[2]));
+      for (const q of players.values()) if (q !== p && q.alive && !mate(q, p)) d = Math.min(d, Math.hypot(q.p[0] - s[0], q.p[2] - s[2]));
       return { s, d };
     }).sort((a, b) => b.d - a.d);
     const s = scored[Math.floor(Math.random() * Math.min(3, scored.length))].s;
@@ -82,6 +98,7 @@ function create(opts) {
 
   function applyDamage(victim, attacker, dmg, wkey, zone, from) {
     if (!victim.alive || state !== 'play' || dmg <= 0) return;
+    if (mate(attacker, victim)) return;
     const t = now();
     if (t < victim.protUntil) return;
     dmg = Math.round(dmg);
@@ -99,27 +116,34 @@ function create(opts) {
       if (mode === 'gungame') {
         const fin = attacker.lvl >= FINAL;
         if (wkey === 'knife') {
-          if (fin) win = true; else attacker.lvl++;
+          if (fin) win = true; else { attacker.lvl++; attacker.prog = 0; }
           if (victim.lvl > 0) victim.lvl--;            // Messer-Kill klaut dem Opfer eine Stufe
-        } else if (!fin) attacker.lvl++;
-      } else if (attacker.kills >= DM_LIMIT) win = true;
+          victim.prog = 0;
+        } else if (!fin && ++attacker.prog >= KPL) { attacker.lvl++; attacker.prog = 0; }
+      } else if (mode === 'dm' && attacker.kills >= DM_LIMIT) win = true;
       if (attacker.alive) {
         attacker.hp = Math.min(100, attacker.hp + 30);
         if (attacker.conn) attacker.conn.send({ t: 'hp', hp: attacker.hp });
         if (attacker.bot) { const k = weaponOf(attacker, 0); attacker.ai.mag = S.stats(k, attacker.lo.att[k]).mag; attacker.ai.reloadUntil = 0; }
       }
     } else if (attacker === victim) {                  // Selbstmord kostet eine Stufe bzw. einen Kill
-      if (mode === 'gungame') { if (victim.lvl > 0) victim.lvl--; } else victim.kills = Math.max(0, victim.kills - 1);
+      if (mode === 'gungame') { if (victim.prog > 0) victim.prog = 0; else if (victim.lvl > 0) victim.lvl--; } else victim.kills = Math.max(0, victim.kills - 1);
     }
     broadcast({
       t: 'kill', k: attacker ? attacker.id : 0, v: victim.id, w: wkey, hs: !!hs,
-      kl: attacker ? attacker.lvl : 0, vl: victim.lvl, kk: attacker ? attacker.kills : 0, vk: victim.kills, vd: victim.deaths
+      kl: attacker ? attacker.lvl : 0, vl: victim.lvl, kp: attacker ? attacker.prog : 0, vp: victim.prog, kk: attacker ? attacker.kills : 0, vk: victim.kills, vd: victim.deaths
     });
     if (win) endRound(attacker);
   }
   function endRound(winner) {
     state = 'end'; roundEndsAt = now() + ROUND_END_MS;
     nades = [];
+    if (typeof winner === 'number') { // Team-Sieg: jeder Mensch im Siegerteam bekommt ein Glückspaket
+      broadcast({ t: 'win', id: 0, team: winner, name: 'Team ' + S.TEAMS[winner].n, ms: ROUND_END_MS, mode, score: cp.score.map(Math.floor) });
+      log('Runde gewonnen von Team ' + S.TEAMS[winner].n);
+      for (const p of players.values()) if (p.team === winner) openPack(p);
+      return;
+    }
     broadcast({ t: 'win', id: winner.id, name: winner.name, ms: ROUND_END_MS, mode });
     log('Runde gewonnen von ' + winner.name);
     openPack(winner);
@@ -136,16 +160,16 @@ function create(opts) {
   }
   function resetRound() {
     state = 'play'; nades = []; smokes = [];
-    resetItems();
+    resetItems(); resetCP();
     const back = [];
     for (const p of players.values()) {
       if (p.bot || p.alive || p.ready) back.push(p);
-      p.lvl = 0; p.kills = 0; p.deaths = 0; p.alive = false; p.ready = p.bot;
+      p.lvl = 0; p.prog = 0; p.kills = 0; p.deaths = 0; p.alive = false; p.ready = p.bot;
     }
     broadcast({ t: 'reset' });
     for (const p of back) spawnPlayer(p);
   }
-  function cfgMsg() { return { t: 'cfg', map: mapId, mode, limit: DM_LIMIT }; }
+  function cfgMsg() { return { t: 'cfg', map: mapId, mode, limit: mode === 'ctp' ? CTP_LIMIT : DM_LIMIT, kpl: KPL }; }
 
   // ------------------------------------------------------------ Nachrichten
   function onMessage(conn, m) {
@@ -236,7 +260,7 @@ function create(opts) {
       case 'cfg': {
         const nm = S.MAPS[m.map] ? m.map : mapId, nmo = S.MODES[m.mode] ? m.mode : mode;
         mapId = nm; mode = nmo;
-        S.setMap(mapId); buildGrid();
+        S.setMap(mapId); buildGrid(); setTeams();
         for (const p of players.values()) if (p.alive) p.ready = true;
         broadcast(cfgMsg());
         broadcast({ t: 'chat', id: 0, m: pl.name + ' startet ' + S.MODES[mode].n + ' auf ' + S.MAPS[mapId].n });
@@ -363,7 +387,7 @@ function create(opts) {
   }
   function resetAI(b) {
     const k = weaponOf(b, 0);
-    b.ai = { path: null, pi: 0, target: 0, reactAt: 0, nextFire: 0, mag: S.stats(k, b.lo.att[k]).mag, reloadUntil: 0, strafe: 1, strafeUntil: 0, repathAt: 0, scanAt: 0, visible: false, alert: 0, alertUntil: 0 };
+    b.ai = { path: null, pi: 0, target: 0, reactAt: 0, nextFire: 0, mag: S.stats(k, b.lo.att[k]).mag, reloadUntil: 0, burst: 0, strafe: 1, strafeUntil: 0, repathAt: 0, scanAt: 0, visible: false, alert: 0, alertUntil: 0 };
   }
   function addBot() {
     if (bots().length >= MAX_BOTS || players.size >= MAX_PLAYERS) return;
@@ -415,7 +439,7 @@ function create(opts) {
   function botFire(b, tg, t) {
     const key = weaponOf(b, 0), w = WEAPONS[key], ai = b.ai, sk = SKILLS[botSkill], st = S.stats(key, b.lo.att[key]);
     const eye = [b.p[0], b.p[1] + PLAYER.EYE, b.p[2]];
-    const headshot = Math.random() < 0.12;
+    const headshot = Math.random() < 0.06;
     const aim = [tg.p[0], tg.p[1] + ((tg.fl & 1) ? (headshot ? 1.15 : 0.75) : (headshot ? 1.62 : 1.15)), tg.p[2]];
     let dx = aim[0] - eye[0], dy = aim[1] - eye[1], dz = aim[2] - eye[2];
     const d = Math.hypot(dx, dy, dz); dx /= d; dy /= d; dz /= d;
@@ -444,7 +468,9 @@ function create(opts) {
     broadcast({ t: 'shot', id: b.id, e: ends, w: key, s: st.sup ? 1 : 0 });
     ai.mag--;
     const iv = 60000 / w.rpm;
-    ai.nextFire = t + (w.auto ? iv : iv * rnd(1.25, 1.9));
+    ai.nextFire = t + (w.auto ? iv : iv * rnd(1.5, 2.3));
+  // Feuerstöße statt Dauerfeuer, danach kurz neu zielen
+  if (w.auto && ++ai.burst >= sk.burst) { ai.burst = 0; ai.nextFire = t + rnd(380, 750); }
     if (ai.mag <= 0) { ai.reloadUntil = t + st.reload * 1000; ai.mag = st.mag; }
     for (const [q, a] of acc) applyDamage(q, b, a.dmg, key, a.zone, eye);
   }
@@ -455,13 +481,13 @@ function create(opts) {
       ai.scanAt = t + 140 + Math.random() * 60;
       let best = null, bd = 1e9;
       for (const q of players.values()) {
-        if (q === b || !q.alive || t < q.protUntil) continue;
+        if (q === b || !q.alive || t < q.protUntil || mate(q, b)) continue;
         const d = dist3(b.p, q.p);
-        if (d > 80) continue;
+        if (d > 70) continue;
         const ang = Math.atan2(-(q.p[0] - b.p[0]), -(q.p[2] - b.p[2]));
         let da = ang - b.yaw; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
         const alerted = ai.alert === q.id && t < ai.alertUntil;
-        if (Math.abs(da) > 1.75 && d > 5 && !alerted) continue;
+        if (Math.abs(da) > 1.45 && d > 5 && !alerted) continue;
         if (!canSee(b, q)) continue;
         const score = d - (alerted ? 15 : 0);
         if (score < bd) { bd = score; best = q; }
@@ -474,7 +500,7 @@ function create(opts) {
     if (tg && tg.alive) {
       const dx = tg.p[0] - b.p[0], dz = tg.p[2] - b.p[2], dy = (tg.p[1] + 1.1) - (b.p[1] + PLAYER.EYE);
       const d = Math.hypot(dx, dz);
-      const off = turnTo(b, Math.atan2(-dx, -dz), Math.atan2(dy, d), 12, dt);
+      const off = turnTo(b, Math.atan2(-dx, -dz), Math.atan2(dy, d), 8, dt);
       if (w.melee) {
         if (d > 1.5) { if (!botMove(b, tg.p[0], tg.p[2], speed, dt)) chase(b, tg, t, speed, dt, true); }
         if (d < 1.9 && Math.abs(tg.p[1] - b.p[1]) < 1.6 && t >= ai.nextFire) {
@@ -498,9 +524,10 @@ function create(opts) {
     }
     if (!ai.path || ai.pi >= ai.path.length || t >= ai.repathAt) {
       let goal = null;
-      if (w.melee || Math.random() < 0.75) {
+      if (teamMode() && MAP.point && !w.melee && Math.random() < 0.7) { const P = MAP.point; goal = [P[0] + rnd(-P[3], P[3]) * 0.6, P[2] + rnd(-P[3], P[3]) * 0.6]; }
+      else if (w.melee || Math.random() < 0.75) {
         let bd = 1e9;
-        for (const q of players.values()) { if (q === b || !q.alive) continue; const d = dist3(b.p, q.p); if (d < bd) { bd = d; goal = [q.p[0], q.p[2]]; } }
+        for (const q of players.values()) { if (q === b || !q.alive || mate(q, b)) continue; const d = dist3(b.p, q.p); if (d < bd) { bd = d; goal = [q.p[0], q.p[2]]; } }
       }
       if (!goal) { const s = MAP.spawns[Math.floor(Math.random() * MAP.spawns.length)]; goal = [s[0], s[2]]; }
       ai.path = findPath(b.p[0], b.p[2], goal[0], goal[1]); ai.pi = 0;
@@ -521,6 +548,27 @@ function create(opts) {
   }
 
   // ------------------------------------------------------------------ Tick
+  function cpTick(dt) {
+    const P = MAP.point, n = [0, 0];
+    for (const p of players.values()) if (p.alive && Math.hypot(p.p[0] - P[0], p.p[2] - P[2]) < P[3] && Math.abs(p.p[1] - P[1]) < 3) n[p.team]++;
+    cp.n = n;
+    const only = n[0] && !n[1] ? 0 : n[1] && !n[0] ? 1 : -1, rate = 1 / S.MODES.ctp.capTime;
+    if (only >= 0 && only !== cp.owner) {
+      if (cp.cap !== only) { cp.prog = Math.max(0, cp.prog - rate * 2 * dt); if (cp.prog === 0) cp.cap = only; }
+      else cp.prog += rate * dt * Math.min(2, 1 + 0.35 * (n[only] - 1));
+      if (cp.cap === only && cp.prog >= 1) {
+        cp.owner = only; cp.cap = -1; cp.prog = 0;
+        broadcast({ t: 'chat', id: 0, m: 'Team ' + S.TEAMS[only].n + ' hat den Punkt erobert!' });
+        broadcast({ t: 'cpcap', team: only });
+      }
+    } else if (only < 0 && !n[0] && !n[1]) cp.prog = Math.max(0, cp.prog - rate * 0.5 * dt);
+    else if (only >= 0 && only === cp.owner) cp.prog = Math.max(0, cp.prog - rate * dt);
+    if (!cp.prog && only < 0) cp.cap = -1;
+    if (cp.owner >= 0) {
+      cp.score[cp.owner] += dt;
+      if (cp.score[cp.owner] >= CTP_LIMIT) { cp.score[cp.owner] = CTP_LIMIT; endRound(cp.owner); }
+    }
+  }
   let lastPing = 0;
   function tick() {
     if (humans() === 0) return;
@@ -541,6 +589,7 @@ function create(opts) {
         if (t >= n.boomAt) { nades.splice(i, 1); explode(n); }
       }
       for (let i = smokes.length - 1; i >= 0; i--) if (t >= smokes[i].until) smokes.splice(i, 1);
+      if (teamMode() && MAP.point && state === 'play') cpTick(dt);
       for (const it of items) {
         if (!it.on) { if (t >= it.backAt) { it.on = true; broadcast({ t: 'item', id: it.id, on: 1 }); } continue; }
         for (const p of players.values()) {
@@ -556,7 +605,9 @@ function create(opts) {
     }
     const l = [];
     for (const p of players.values()) if (p.alive) l.push([p.id, r2(p.p[0]), r2(p.p[1]), r2(p.p[2]), Math.round(p.yaw * 1000) / 1000, Math.round(p.pitch * 1000) / 1000, p.fl, p.slot]);
-    broadcast({ t: 'snap', l });
+    const snap = { t: 'snap', l };
+    if (teamMode()) snap.cp = [cp.owner, cp.cap, Math.round(cp.prog * 100), Math.floor(cp.score[0]), Math.floor(cp.score[1]), cp.n[0], cp.n[1]];
+    broadcast(snap);
     if (t - lastPing > 2000) { lastPing = t; broadcast({ t: 'pings', l: [...players.values()].map(p => [p.id, p.ping]) }); }
   }
 

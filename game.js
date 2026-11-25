@@ -21,7 +21,7 @@ const SET = {
   sens: clamp(parseFloat(store.get('sens', '1')) || 1, 0.2, 3),
   fov: clamp(parseFloat(store.get('fov', '74')) || 74, 60, 100),
   vol: (() => { const v = parseFloat(store.get('vol', '0.6')); return v >= 0 && v <= 1 ? v : 0.6; })(),
-  q: ['hoch', 'mittel', 'niedrig'].indexOf(store.get('q', 'hoch')) >= 0 ? store.get('q', 'hoch') : 'hoch',
+  q: ['hoch', 'mittel', 'niedrig'].indexOf(store.get('q', 'mittel')) >= 0 ? store.get('q', 'mittel') : 'mittel',
   adsHold: store.get('ads', 'halten') !== 'umschalten'
 };
 let savedLo = S.sanitizeLoadout(parseJ(store.get('lo', 'null')));
@@ -98,6 +98,7 @@ float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 const PW = program(`
 attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute vec2 aMA;
 uniform mat4 uVP, uM, uL;
+uniform float uNO; // Normalen-Versatz gegen Schattenakne (größer bei grober Schattenkarte)
 uniform vec4 uSkin; // Waffen-Modelle: x = Skin-Material (0 = aus), yzw = Skin-Farbe
 varying vec3 vW, vN, vC; varying vec2 vMA; varying vec4 vL; varying vec3 vO, vNo;
 void main(){
@@ -109,13 +110,13 @@ void main(){
     vMA.y = -100.0;
     if (uSkin.x > 0.5) { float l = dot(aCol, vec3(0.3, 0.59, 0.11)); vC = uSkin.yzw * clamp(0.42 + l * 1.7, 0.5, 1.35); vMA.x = uSkin.x; }
   }
-  vL = uL * vec4(w.xyz + normalize(n) * 0.06, 1.0);
+  vL = uL * vec4(w.xyz + normalize(n) * uNO, 1.0);
   gl_Position = uVP * w;
 }`, PREC + `
 varying vec3 vW, vN, vC; varying vec2 vMA; varying vec4 vL; varying vec3 vO, vNo;
 uniform vec3 uCol2;
 uniform vec3 uCam, uSun, uSunCol, uAmbT, uAmbB, uFog, uSkyZ, uSkyH;
-uniform float uFogD, uEmis, uAlpha, uShadowOn, uShade, uSMS;
+uniform float uFogD, uEmis, uAlpha, uShadowOn, uShade, uSMS, uSMR;
 uniform vec4 uFlash;
 uniform sampler2D uSM;
 ` + NOISE + `
@@ -125,42 +126,57 @@ float shadowF(){
   if (uShadowOn < 0.5) return uShade;
   vec3 p = vL.xyz / vL.w * 0.5 + 0.5;
   if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
-  float z = p.z - 0.0005, o = uSMS;
-  return (sm(p.xy + vec2(-o, -o), z) + sm(p.xy + vec2(o, -o), z) + sm(p.xy + vec2(-o, o), z) + sm(p.xy + vec2(o, o), z)) * 0.25;
+  float z = p.z - 0.0012;
+  // 4 bilinear gewichtete Abfragen im Abstand einer halben Rasterzelle -> 3x3-Zelt-Filter,
+  // die Schattenkante läuft über ~2 Zellen weich aus, ohne dass die Karte größer sein muss
+  float s = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 q = p.xy * uSMR + vec2(i == 1 || i == 3 ? 0.5 : -0.5, i >= 2 ? 0.5 : -0.5) - 0.5;
+    vec2 f = fract(q), b = (floor(q) + 0.5) / uSMR, d = vec2(1.0 / uSMR, 0.0);
+    float a0 = sm(b, z), a1 = sm(b + d.xy, z), a2 = sm(b + d.yx, z), a3 = sm(b + d.xx, z);
+    s += mix(mix(a0, a1, f.x), mix(a2, a3, f.x), f.y);
+  }
+  return s * 0.25;
 }
+// weiche Kante: 0 -> 1 um 'a' herum, Breite w (wächst mit der Entfernung -> kein Flimmern)
+float soft(float a, float x, float w){ return smoothstep(a - w, a + w, x); }
 vec3 surf(vec3 c, float m, vec3 P, vec3 N, out float spec, out float emis){
   spec = 0.0; emis = 0.0;
   vec3 an = abs(N);
   vec2 uv = an.y > 0.5 ? P.xz : (an.x > 0.5 ? vec2(P.z, P.y) : vec2(P.x, P.y));
   if (m < 0.5) return c;
-  float n1 = vn(uv * 1.3), n2 = vn(uv * 7.0);
-  if (m < 1.5) return c * (0.9 + 0.14 * n1 + 0.06 * n2);
-  if (m < 2.5) { float dirt = an.y < 0.5 ? (1.0 - smoothstep(0.0, 1.4, P.y)) * 0.12 : 0.0; return c * (0.88 + 0.14 * n1 + 0.05 * n2 - dirt); }
-  if (m < 3.5) { vec2 b = uv / vec2(0.5, 0.2); float row = floor(b.y); b.x += mod(row, 2.0) * 0.5; vec2 f = fract(b);
-    float br = step(0.08, f.y) * step(0.04, f.x); float hv = h21(vec2(floor(b.x), row));
-    return mix(vec3(0.62, 0.6, 0.56) * (0.9 + 0.1 * n2), c * (0.78 + 0.34 * hv) * (0.92 + 0.1 * n2), br); }
-  if (m < 4.5) { vec2 f = fract(uv / vec2(3.0, 1.5)); float e = min(min(f.x, 1.0 - f.x) * 3.0, min(f.y, 1.0 - f.y) * 1.5);
-    return c * (0.84 + 0.22 * vn(uv * 0.5 + 3.0)) * (0.86 + 0.14 * smoothstep(0.0, 0.03, e)) * (0.95 + 0.06 * n2); }
-  if (m < 5.5) return c * (0.82 + 0.22 * n1) * (0.9 + 0.18 * h21(floor(uv * 30.0))) * (0.92 + 0.12 * vn(uv * 0.15));
-  if (m < 6.5) { vec2 f = fract(uv / 0.6); float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
-    return c * (0.9 + 0.12 * h21(floor(uv / 0.6))) * (0.8 + 0.2 * smoothstep(0.0, 0.04, e)) * (0.94 + 0.08 * n2); }
-  if (m < 7.5) { float pl = floor(uv.y / 0.22); float fy = fract(uv.y / 0.22);
-    float g = vn(vec2(uv.x * 0.9 + pl * 7.0, uv.y * 25.0));
-    return c * (0.8 + 0.25 * g) * (0.84 + 0.16 * smoothstep(0.0, 0.06, min(fy, 1.0 - fy))) * (0.9 + 0.16 * h21(vec2(pl, 3.0))); }
-  if (m < 8.5) { spec = 0.3; float cor = an.y > 0.5 ? 1.0 : 0.86 + 0.14 * sin((an.x > 0.5 ? P.z : P.x) * 30.0); return c * cor * (0.9 + 0.15 * n1); }
-  if (m < 9.5) { spec = 1.0; return c; }
-  if (m < 10.5) { vec2 b = uv / vec2(1.0, 0.5); b.x += mod(floor(b.y), 2.0) * 0.5; vec2 f = fract(b); float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y) * 0.5);
-    return c * (0.84 + 0.22 * h21(floor(b))) * (0.76 + 0.24 * smoothstep(0.0, 0.025, e)) * (0.93 + 0.09 * n2); }
-  if (m < 11.5) { float r = fract(uv.y / 0.3); return c * (0.74 + 0.26 * smoothstep(0.0, 0.35, r)) * (0.9 + 0.15 * h21(vec2(floor(uv.x / 0.25), floor(uv.y / 0.3)))); }
-  if (m < 12.5) return c * (0.72 + 0.4 * vn(uv * 2.5)) * (0.88 + 0.16 * n2);
-  if (m < 13.5) { emis = 1.0; return c; }
-  if (m < 14.5) { spec = 0.6; return c; }
-  if (m < 15.5) { vec2 w = uv / vec2(2.2, 3.0); vec2 f = fract(w);
-    float win = an.y > 0.5 ? 0.0 : step(0.28, f.x) * step(f.x, 0.72) * step(0.3, f.y) * step(f.y, 0.78);
-    float lit = step(0.8, h21(floor(w)));
+  // Low-Poly-Stil: flächige Farben, grobe Variation, weiche Übergänge; in der Ferne verschwimmen die Muster zur Grundfarbe
+  float dist = length(P - uCam), w = 0.012 + dist * 0.0022, far = smoothstep(18.0, 60.0, dist);
+  float n1 = vn(uv * 0.45);
+  vec3 r = c;
+  if (m < 1.5) r = c * (0.92 + 0.12 * n1);
+  else if (m < 2.5) r = c * (0.93 + 0.1 * n1);
+  else if (m < 3.5) { vec2 b = uv / vec2(0.9, 0.45); float row = floor(b.y); b.x += mod(row, 2.0) * 0.5; vec2 f = fract(b);
+    float ww = w / 0.45, br = soft(0.06, f.y, ww) * soft(0.03, f.x, ww * 0.5);
+    float hv = h21(vec2(floor(b.x), row));
+    r = mix(c * 0.76, c * (0.9 + 0.12 * hv), br); }
+  else if (m < 4.5) { vec2 f = fract(uv / vec2(3.0, 1.5)); float e = min(min(f.x, 1.0 - f.x) * 3.0, min(f.y, 1.0 - f.y) * 1.5);
+    r = c * (0.94 + 0.07 * h21(floor(uv / vec2(3.0, 1.5)))) * (0.9 + 0.1 * soft(0.03, e, w)); }
+  else if (m < 5.5) r = c * (0.93 + 0.08 * n1);
+  else if (m < 6.5) { vec2 f = fract(uv / 1.2); float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * 1.2;
+    r = c * (0.92 + 0.09 * h21(floor(uv / 1.2))) * (0.87 + 0.13 * soft(0.03, e, w)); }
+  else if (m < 7.5) { float pl = floor(uv.y / 0.3); float fy = fract(uv.y / 0.3);
+    r = c * (0.87 + 0.13 * soft(0.08, fy, w / 0.3)) * (0.91 + 0.13 * h21(vec2(pl, 3.0))); }
+  else if (m < 8.5) { spec = 0.3; r = c * (0.94 + 0.08 * n1); }
+  else if (m < 9.5) { spec = 1.0; return c; }
+  else if (m < 10.5) { vec2 b = uv / vec2(1.2, 0.6); b.x += mod(floor(b.y), 2.0) * 0.5; vec2 f = fract(b); float e = min(min(f.x, 1.0 - f.x) * 1.2, min(f.y, 1.0 - f.y) * 0.6);
+    r = c * (0.89 + 0.14 * h21(floor(b))) * (0.85 + 0.15 * soft(0.025, e, w)); }
+  else if (m < 11.5) { float q = fract(uv.y / 0.4); r = c * (0.84 + 0.16 * soft(0.3, q, w / 0.4)); }
+  else if (m < 12.5) r = c * (0.88 + 0.16 * n1);
+  else if (m < 13.5) { emis = 1.0; return c; }
+  else if (m < 14.5) { spec = 0.6; return c; }
+  else if (m < 15.5) { vec2 g = uv / vec2(2.2, 3.0); vec2 f = fract(g); float ww = w / 2.2;
+    float win = an.y > 0.5 ? 0.0 : soft(0.28, f.x, ww) * soft(0.28, 1.0 - f.x, ww) * soft(0.3, f.y, ww) * soft(0.22, 1.0 - f.y, ww);
+    float lit = step(0.8, h21(floor(g)));
     emis = win * lit * 0.6;
-    return mix(c * (0.9 + 0.1 * n1), mix(vec3(0.14, 0.17, 0.22), vec3(1.0, 0.8, 0.5), lit), win); }
-  return c * (0.86 + 0.14 * n2);
+    return mix(c, mix(vec3(0.14, 0.17, 0.22), vec3(1.0, 0.8, 0.5), lit), win); }
+  // Musterhelligkeit in der Ferne zur mittleren Farbe angleichen (wie eine grobe Mip-Stufe)
+  return mix(r, c * 0.94, far);
 }
 // Waffen-Skins: Muster in Objektkoordinaten, damit sie mit der Waffe mitwandern
 vec3 skinSurf(vec3 c, float m, out float spec, out float emis){
@@ -371,7 +387,7 @@ const IDENT = M.ident(), TMP = new Float32Array(16);
 const SH = { size: 0, tex: null, fb: null, rb: null, L: M.ident(), on: false };
 function setupShadow() {
   if (SH.tex) { gl.deleteTexture(SH.tex); gl.deleteFramebuffer(SH.fb); gl.deleteRenderbuffer(SH.rb); SH.tex = null; }
-  SH.size = SET.q === 'hoch' ? 2048 : SET.q === 'mittel' ? 1024 : 0;
+  SH.size = SET.q === 'hoch' ? 1024 : SET.q === 'mittel' ? 512 : 0;
   SH.on = false;
   if (!SH.size) return;
   SH.tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, SH.tex);
@@ -655,11 +671,13 @@ const Snd = (() => {
 const cam = { p: [0, 12, 30], r: [1, 0, 0], yaw: 0, pitch: -0.3 };
 const players = new Map();
 let myId = 0, joined = false, gameState = 'play', ws = null, rtt = 0, botSkill = 1;
-let mapId = 'stadt', mode = 'gungame', dmLimit = 25;
+let mapId = 'stadt', mode = 'gungame', dmLimit = 40, KPL = 2;
+const CP = { owner: -1, cap: -1, prog: 0, score: [0, 0], n: [0, 0] };
+const TEAMS = S.TEAMS, teamMode = () => !!(MODES[mode] && MODES[mode].teams);
 const me = {
-  p: [0, 0, 0], v: [0, 0, 0], yaw: 0, pitch: 0, onGround: true, crouch: false, alive: false, everSpawned: false, hp: 100, lvl: 0,
+  p: [0, 0, 0], v: [0, 0, 0], yaw: 0, pitch: 0, onGround: true, crouch: false, alive: false, everSpawned: false, hp: 100, lvl: 0, prog: 0,
   slot: 0, lastSlot: 2, ammo: [0, 0], reload: null, nextFire: 0, switchT: 0, fireT: -9, cycleDone: true, swingT: -9, throwT: -9, autoBack: 0,
-  nades: { he: 1, flash: 1, smoke: 1 }, adsWant: false, ads: 0, bloom: 0, recoilAcc: 0, visY: 0, eyeH: PLAYER.EYE,
+  nades: { he: 1, flash: 1, smoke: 1 }, adsWant: false, ads: 0, sprint: false, sprintT: 0, bloom: 0, recoilAcc: 0, visY: 0, eyeH: PLAYER.EYE,
   deadAt: 0, killerId: 0, loAt: 0, flashUntil: 0, flashDur: 1, shake: 0, stepPh: 0, bob: 0, protUntil: 0, spreadNow: 0, swayX: 0, swayY: 0,
   lo: savedLo, vmShade: 1
 };
@@ -685,9 +703,10 @@ function stOf(key, lo) {
 function eyePos() { return [me.p[0], me.visY + me.eyeH, me.p[2]]; }
 function overlayNow() { const k = curKey(); return !!(k && me.alive && me.ads > 0.9 && stOf(k).overlay); }
 
+function setHue(p, hue) { const c = hsl(hue, 0.62, 0.46); p.hue = hue; p.col = c; p.colD = [c[0] * 0.55, c[1] * 0.55, c[2] * 0.55]; p.css = 'hsl(' + hue + ',70%,55%)'; }
 function addPlayer(i) {
   const c = hsl(i.hue, 0.62, 0.46);
-  const p = { id: i.id, name: i.name, lvl: i.lvl, kills: i.kills, deaths: i.deaths, alive: i.alive, bot: i.bot, hue: i.hue, ping: i.ping || 0, lo: i.lo ? S.sanitizeLoadout(i.lo) : S.sanitizeLoadout(null),
+  const p = { id: i.id, name: i.name, lvl: i.lvl, prog: i.prog || 0, team: i.team || 0, kills: i.kills, deaths: i.deaths, alive: i.alive, bot: i.bot, hue: i.hue, ping: i.ping || 0, lo: i.lo ? S.sanitizeLoadout(i.lo) : S.sanitizeLoadout(null),
     col: c, colD: [c[0] * 0.55, c[1] * 0.55, c[2] * 0.55], css: 'hsl(' + i.hue + ',70%,55%)',
     snaps: [], pos: [0, -50, 0], yaw: 0, pitch: 0, fl: 0, slot: 0, phase: 0, speed: 0, prev: null, deadAt: -9, fireT: -9, protUntil: 0, rl: 0 };
   players.set(p.id, p); return p;
@@ -713,7 +732,7 @@ function resetMe(p, yaw, lvl, lo, t) {
   me.p = [p[0], p[1], p[2]]; me.v = [0, 0, 0]; me.yaw = yaw; me.pitch = 0; me.onGround = true; me.crouch = false;
   me.alive = true; me.everSpawned = true; me.hp = 100; me.visY = p[1]; me.eyeH = PLAYER.EYE; me.nades = { he: 1, flash: 1, smoke: 1 };
   me.recoilAcc = 0; me.flashUntil = 0; me.shake = 0; me.protUntil = t + 1.8; me.loAt = 0; me.adsWant = false; me.ads = 0;
-  me.lastSlot = mode === 'dm' ? 1 : 2;
+  me.lastSlot = mode !== 'gungame' ? 1 : 2;
   const k1 = curKey(1);
   me.ammo[1] = k1 ? stOf(k1).mag : 0;
   setLevel(lvl, t);
@@ -770,8 +789,9 @@ function gunPos(pl) {
   const b = basis(pl.yaw, pl.pitch), y = pl.pos[1] + ((pl.fl & 1) ? 0.82 : 1.3);
   return [pl.pos[0] + b.f[0] * 0.75 + b.r[0] * 0.12, y + b.f[1] * 0.75, pl.pos[2] + b.f[2] * 0.75 + b.r[2] * 0.12];
 }
-function applyCfg(map, md, limit) {
-  mapId = MAPS[map] ? map : 'stadt'; mode = MODES[md] ? md : 'gungame'; dmLimit = limit || 25;
+function applyCfg(map, md, limit, kpl) {
+  mapId = MAPS[map] ? map : 'stadt'; mode = MODES[md] ? md : 'gungame'; dmLimit = limit || 40; KPL = kpl || 2;
+  Object.assign(CP, { owner: -1, cap: -1, prog: 0, score: [0, 0], n: [0, 0] });
   S.setMap(mapId); buildWorld(); setupLight();
   nades = []; smokes = []; decals = []; objs = []; tracers = []; items = MAP.items.map(() => true);
   $('mapsel').value = mapId; $('modesel').value = mode;
@@ -780,9 +800,10 @@ function applyCfg(map, md, limit) {
 }
 const NET = {
   welcome(m, t) {
-    applyCfg(m.map, m.mode, m.limit);
+    applyCfg(m.map, m.mode, m.limit, m.kpl);
     myId = m.id; joined = true; gameState = m.state; botSkill = m.skill; $('skill').value = botSkill;
     players.clear(); m.players.forEach(addPlayer);
+    { const mine = players.get(myId); if (mine) me.prog = mine.prog; }
     for (const q of m.pos) { const p = players.get(q[0]); if (p) { p.pos = [q[1], q[2], q[3]]; p.yaw = q[4]; p.snaps = [{ t, p: p.pos.slice(), yaw: q[4], pitch: 0, fl: 0, slot: 0 }]; } }
     items = m.items.map(v => !!v);
     smokes = m.smokes.map(s => mkSmoke(s.p, t - (NADES.smoke.duration - s.left)));
@@ -793,11 +814,14 @@ const NET = {
     openLoadout('spawn');
     if (gameState === 'end') announce('Runde vorbei', 'Die nächste startet gleich', 4);
   },
-  cfg(m) { applyCfg(m.map, m.mode, m.limit); },
+  cfg(m) { applyCfg(m.map, m.mode, m.limit, m.kpl); },
+  teams(m) { for (const e of m.l) { const p = players.get(e[0]); if (p) { p.team = e[1]; setHue(p, e[2]); } } if (teamMode()) { const mine = players.get(myId); if (mine) announce('Team ' + TEAMS[mine.team].n, 'Erobert den Punkt in der Mitte!', 3); } },
+  cpcap(m) { const mine = players.get(myId); if (mine) { if (m.team === mine.team) { announce('Punkt erobert!', 'Haltet ihn, um zu punkten', 2); Snd.level(); } else announce('Punkt verloren!', 'Team ' + TEAMS[m.team].n + ' hält jetzt den Punkt', 2); } },
   full() { $('err').textContent = 'Der Server ist voll.'; },
   join(m) { addPlayer(m.p); chatLine(null, m.p.name + ' ist beigetreten'); },
   leave(m) { const p = players.get(m.id); if (p) { chatLine(null, p.name + ' hat das Spiel verlassen'); players.delete(m.id); } },
   snap(m, t) {
+    if (m.cp) { CP.owner = m.cp[0]; CP.cap = m.cp[1]; CP.prog = m.cp[2] / 100; CP.score = [m.cp[3], m.cp[4]]; CP.n = [m.cp[5], m.cp[6]]; }
     for (const e of m.l) {
       if (e[0] === myId) continue;
       const p = players.get(e[0]); if (!p) continue;
@@ -836,7 +860,10 @@ const NET = {
   kill(m, t) {
     const k = players.get(m.k), v = players.get(m.v);
     if (v) { v.alive = false; v.deadAt = t; v.lvl = m.vl; v.deaths = m.vd; v.kills = m.vk; }
-    if (k) { k.lvl = m.kl; k.kills = m.kk; }
+    if (k) { k.lvl = m.kl; k.kills = m.kk; k.prog = m.kp || 0; }
+    if (v) v.prog = m.vp || 0;
+    if (m.k === myId) me.prog = m.kp || 0;
+    if (m.v === myId) me.prog = m.vp || 0;
     feed(k, v, m.w, m.hs, m.k === myId || m.v === myId);
     if (v) for (let i = 0; i < 10; i++) parts.push({ p: [v.pos[0], v.pos[1] + 1.1, v.pos[2]], v: [rnd(-2, 2), rnd(0.5, 3.5), rnd(-2, 2)], life: 0.6, max: 0.6, s0: 0.09, s1: 0.04, c: [0.6, 0.03, 0.03], a: 0.95, soft: 0.5, g: 9 });
     if (m.v === myId) {
@@ -851,7 +878,7 @@ const NET = {
         setLevel(m.kl, t); Snd.level();
         const last = m.kl === LADDER.length - 1;
         announce(last ? 'Letzte Stufe!' : 'Stufe ' + (m.kl + 1), last ? 'Ein Messer-Kill zum Sieg' : WEAPONS[LADDER[m.kl]].name, 2.2);
-      } else if (v) announce('Kill', v.name + (mode === 'dm' ? '  ·  ' + m.kk + '/' + dmLimit : ''), 1.4);
+      } else if (v) announce('Kill', v.name + (mode === 'dm' ? '  ·  ' + m.kk + '/' + dmLimit : mode === 'gungame' && m.kl < LADDER.length - 1 ? '  ·  noch ' + (KPL - (m.kp || 0)) + ' bis Stufe ' + (m.kl + 2) : ''), 1.4);
     }
   },
   nade(m, t) { nades.push({ id: m.id, k: m.k, p: m.o.slice(), v: m.v.slice(), t0: t, spin: Math.random() * 6, bounced: 0 }); Snd.throw_(m.o); },
@@ -883,12 +910,14 @@ const NET = {
   item(m) { items[m.id] = !!m.on; },
   win(m, t) {
     gameState = 'end'; me.adsWant = false; fx.msgUntil = 0;
-    const rows = [...players.values()].sort((a, b) => mode === 'dm' ? b.kills - a.kills : (b.lvl - a.lvl || b.kills - a.kills)).slice(0, 3);
+    const rows = [...players.values()].sort((a, b) => mode !== 'gungame' ? b.kills - a.kills : (b.lvl - a.lvl || b.kills - a.kills)).slice(0, 3);
     const el = $('win'); el.textContent = '';
-    mk('h1', '', m.id === myId ? 'Du gewinnst!' : m.name + ' gewinnt!', el);
-    mk('p', '', m.mode === 'dm' ? dmLimit + ' Kills – Runde beendet' : 'Messer-Kill – Runde beendet', el);
+    const mine = players.get(myId), myWin = m.team !== undefined ? !!(mine && mine.team === m.team) : m.id === myId;
+    const h1 = mk('h1', '', m.team !== undefined ? (myWin ? 'Dein Team gewinnt!' : m.name + ' gewinnt!') : (myWin ? 'Du gewinnst!' : m.name + ' gewinnt!'), el);
+    if (m.team !== undefined) h1.style.color = TEAMS[m.team].css;
+    mk('p', '', m.mode === 'ctp' ? 'Blau ' + m.score[0] + ' : ' + m.score[1] + ' Rot – Punkt gehalten' : m.mode === 'dm' ? dmLimit + ' Kills – Runde beendet' : 'Messer-Kill – Runde beendet', el);
     const ol = mk('ol', '', '', el);
-    rows.forEach((p, i) => mk('li', '', (i + 1) + '.  ' + p.name + '  ·  ' + (mode === 'dm' ? '' : 'Stufe ' + (p.lvl + 1) + '  ·  ') + p.kills + ' Kills', ol));
+    rows.forEach((p, i) => mk('li', '', (i + 1) + '.  ' + p.name + '  ·  ' + (mode !== 'gungame' ? '' : 'Stufe ' + (p.lvl + 1) + '  ·  ') + p.kills + ' Kills', ol));
     mk('p', '', '', el).id = 'wincd';
     el.style.display = 'flex'; fx.winUntil = t + m.ms / 1000;
     Snd.win();
@@ -899,7 +928,8 @@ const NET = {
   },
   reset() {
     gameState = 'play'; $('win').style.display = 'none'; nades = []; smokes = []; decals = []; items = items.map(() => true);
-    for (const p of players.values()) { p.lvl = 0; p.kills = 0; p.deaths = 0; p.alive = false; p.deadAt = -9; }
+    Object.assign(CP, { owner: -1, cap: -1, prog: 0, score: [0, 0], n: [0, 0] }); me.prog = 0;
+    for (const p of players.values()) { p.lvl = 0; p.prog = 0; p.kills = 0; p.deaths = 0; p.alive = false; p.deadAt = -9; }
     me.lvl = 0; buildLadder();
     $('feed').textContent = ''; announce('Neue Runde', MODES[mode].n + ' · ' + MAPS[mapId].n, 2);
   },
@@ -1070,7 +1100,7 @@ function reloadTick(t) {
 function weaponTick(t, dt) {
   const key = curKey(), w = key ? WEAPONS[key] : null, st = key ? stOf(key) : null;
   // Zielen (ADS)
-  const canAds = me.alive && w && !w.melee && !me.reload && t >= me.switchT + 0.2 && gameState === 'play' && locked;
+  const canAds = me.alive && w && !w.melee && !me.reload && !me.sprint && t >= me.switchT + 0.2 && gameState === 'play' && locked;
   const rate = 1 / Math.max(0.05, st ? st.ads : 0.2), prev = me.ads;
   me.ads = clamp(me.ads + (canAds && me.adsWant ? rate : -rate * 1.4) * dt, 0, 1);
   if (prev < 0.05 && me.ads >= 0.05) Snd.ads();
@@ -1079,6 +1109,7 @@ function weaponTick(t, dt) {
     const sp = Math.hypot(me.v[0], me.v[2]) / PLAYER.RUN, a = me.ads;
     let s = w.spread + me.bloom + w.move * clamp((sp - 0.3) / 0.6, 0, 1) * (1 - 0.5 * a);
     if (!me.onGround) s += w.move * 1.4 + 0.03;
+    s += w.move * 0.8 * me.sprintT;
     if (w.cls === 'sniper') s += w.noscope * (1 - smooth(a));
     s *= lerp(st.hip, 1, a) * (1 - (w.cls === 'shotgun' ? 0.25 : 0.7) * a);
     if (me.crouch && me.onGround) s *= 0.75;
@@ -1097,6 +1128,7 @@ function weaponTick(t, dt) {
   reloadTick(t);
   const edge = mouseEdge; mouseEdge = false;
   if (!locked || chatOpen) return;
+  if (me.sprintT > 0.3) return; // aus dem Sprint heraus kurz nicht feuern
   if (!w) { if (edge && t >= me.nextFire && !me.autoBack) throwNade(t, NADE_KEYS[me.slot - 3]); return; }
   if (t < me.nextFire) return;
   if (w.melee) { if (mouseDown) knifeAttack(t, w); return; }
@@ -1126,8 +1158,13 @@ function moveMe(t, dt) {
   const typing = chatOpen || !locked;
   const down = c => !typing && keys.has(c);
   let sp = PLAYER.RUN * (w ? w.speed : 1);
-  const walking = down('ShiftLeft') || down('ShiftRight');
+  // Shift = Sprint (nur vorwärts, nicht beim Zielen/Schießen/Ducken), X = leise gehen, Strg/C = ducken
+  const walking = down('KeyX');
+  const fwd = down('KeyW') || down('ArrowUp');
+  me.sprint = (down('ShiftLeft') || down('ShiftRight')) && fwd && !walking && !me.crouch && !me.adsWant && !mouseDown && me.alive;
+  me.sprintT = clamp(me.sprintT + (me.sprint ? 6 : -7) * dt, 0, 1);
   if (walking) sp *= 0.52;
+  if (me.sprint) sp *= 1.32;
   if (me.crouch) sp *= 0.42;
   sp *= 1 - 0.32 * me.ads;
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
@@ -1145,7 +1182,7 @@ function moveMe(t, dt) {
     if (down('Space')) { me.v[1] = PLAYER.JUMP; me.onGround = false; jumped = true; }
   } else if (wl > 0) accel(wx, wz, Math.min(sp, 0.9), 45, dt);
   me.v[1] -= PLAYER.G * dt;
-  if (down('KeyC')) me.crouch = true;
+  if (down('ControlLeft') || down('ControlRight') || down('KeyC')) me.crouch = true;
   else if (me.crouch && !S.collide(me.p[0], me.p[1], me.p[2], PLAYER.H)) me.crouch = false;
   const h = me.crouch ? PLAYER.HC : PLAYER.H;
   const wasGround = me.onGround && !jumped;
@@ -1214,6 +1251,7 @@ window.addEventListener('keydown', e => {
   if (e.target === $('chatin') || e.target === $('name')) return;
   if (!joined) return;
   if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (locked && (e.ctrlKey || e.code === 'ControlLeft' || e.code === 'ControlRight') && !chatOpen) e.preventDefault(); // Strg = Ducken
   if (PK.open) {
     if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { if (PK.phase === 'ready') startSpin(); else if (PK.phase === 'done') closePack(); }
     return;
@@ -1229,7 +1267,7 @@ window.addEventListener('keydown', e => {
   const t = now();
   switch (e.code) {
     case 'Digit1': setSlot(0, t); break;
-    case 'Digit2': setSlot(mode === 'dm' ? 1 : 2, t); break;
+    case 'Digit2': setSlot(mode !== 'gungame' ? 1 : 2, t); break;
     case 'Digit3': setSlot(2, t); break;
     case 'Digit4': setSlot(3, t); break;
     case 'Digit5': setSlot(4, t); break;
@@ -1243,6 +1281,18 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') showSB = false; });
 window.addEventListener('blur', () => { keys.clear(); mouseDown = false; showSB = false; });
+// Strg+W (Ducken + Vorwärts) würde den Tab schließen: im Spiel vorher nachfragen,
+// im Vollbild sperrt der Browser die Tastenkombination ganz (Keyboard Lock)
+window.addEventListener('beforeunload', e => { if (joined) { e.preventDefault(); e.returnValue = ''; } });
+function toggleFull() {
+  const d = document;
+  if (d.fullscreenElement) { d.exitFullscreen && d.exitFullscreen(); return; }
+  const el = d.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req) return;
+  Promise.resolve(req.call(el)).then(() => { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyT', 'KeyN', 'KeyQ']).catch(() => { }); }).catch(() => { });
+}
+$('fullbtn').addEventListener('click', toggleFull);
+document.addEventListener('fullscreenchange', () => { const b = $('fullbtn'); if (b) b.textContent = document.fullscreenElement ? 'Vollbild beenden' : 'Vollbild'; if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); });
 
 function openChat() { chatOpen = true; keys.clear(); mouseDown = false; const c = $('chatin'); c.style.display = 'block'; c.value = ''; c.focus(); }
 function closeChat() { chatOpen = false; const c = $('chatin'); c.style.display = 'none'; c.blur(); }
@@ -1439,7 +1489,7 @@ function statBars(parent, k, a) {
 function renderLoadout() {
   const d = LO.draft, body = $('lobody'); body.textContent = '';
   $('losub').textContent = MODES[mode].n + ' · ' + MAPS[mapId].n + (LO.mode === 'edit' ? ' · gilt ab dem nächsten Spawn' : '');
-  if (mode === 'dm') {
+  if (mode !== 'gungame') {
     mk('h3', '', 'Primärwaffe', body);
     const c1 = mk('div', 'cards', '', body);
     for (const k of S.PRIMARY) weaponCard(c1, k, d.p === k, () => { d.p = k; LO.edit = k; renderLoadout(); });
@@ -1496,6 +1546,17 @@ function feed(k, v, w, hs, mine) {
   while (f.children.length > 6) f.removeChild(f.firstChild);
   setTimeout(() => { if (d.parentNode) d.parentNode.removeChild(d); }, 6000);
 }
+function cpHud(myTeam) {
+  const own = CP.owner, a = $('cpa'), b = $('cpb');
+  setTxt('cpa', String(CP.score[0])); setTxt('cpb', String(CP.score[1]));
+  const st = own < 0 ? 'Punkt neutral' : 'Punkt: Team ' + TEAMS[own].n;
+  const contested = CP.n[0] > 0 && CP.n[1] > 0;
+  setTxt('cpst', contested ? 'Umkämpft!' : CP.cap >= 0 && CP.prog > 0 ? TEAMS[CP.cap].n + ' erobert … ' + Math.round(CP.prog * 100) + ' %' : st);
+  const f = $('cpfill'), col = CP.cap >= 0 ? TEAMS[CP.cap].css : own >= 0 ? TEAMS[own].css : '#888';
+  const w = (CP.cap >= 0 ? CP.prog : own >= 0 ? 1 : 0) * 100;
+  if (hc.cpw !== w + col) { hc.cpw = w + col; f.style.width = w + '%'; f.style.background = col; }
+  void a; void b; void myTeam;
+}
 function buildLadder() {
   const el = $('ladder'); el.textContent = '';
   el.style.display = mode === 'gungame' ? 'flex' : 'none';
@@ -1504,7 +1565,20 @@ function buildLadder() {
 function renderSB() {
   const el = $('sb'); el.textContent = '';
   const h = mk('h2', '', MODES[mode].n.toUpperCase(), el);
-  mk('span', '', players.size + ' Spieler · ' + MAPS[mapId].n + ' · ' + (mode === 'dm' ? 'Ziel: ' + dmLimit + ' Kills' : 'Ziel: Stufe ' + LADDER.length + ' + Messer-Kill'), h);
+  mk('span', '', players.size + ' Spieler · ' + MAPS[mapId].n + ' · ' + (mode === 'ctp' ? 'Ziel: ' + dmLimit + ' Punkte' : mode === 'dm' ? 'Ziel: ' + dmLimit + ' Kills' : 'Ziel: Stufe ' + LADDER.length + ' + Messer-Kill (' + KPL + ' Kills je Stufe)'), h);
+  if (teamMode()) { // zwei Tabellen, eine pro Team
+    [0, 1].forEach(tm => {
+      const hd = mk('h3', 'sbteam', 'Team ' + TEAMS[tm].n + '  ·  ' + CP.score[tm] + ' Punkte' + (CP.owner === tm ? '  ·  hält den Punkt' : ''), el); hd.style.color = TEAMS[tm].css;
+      const tb = mk('table', '', '', el), hr = mk('tr', '', '', tb);
+      [['SPIELER', ''], ['KILLS', 'n'], ['TODE', 'n'], ['K/D', 'n'], ['PING', 'n']].forEach(c => mk('th', c[1], c[0], hr));
+      [...players.values()].filter(p => p.team === tm).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths).forEach(p => {
+        const tr = mk('tr', (p.id === myId ? 'me ' : '') + (p.alive ? '' : 'dead'), '', tb);
+        const n = mk('td', '', '', tr); mk('span', 'dot', '', n).style.background = p.css; n.appendChild(document.createTextNode(p.name + (p.alive ? '' : '  ✝')));
+        [p.kills, p.deaths, (p.kills / Math.max(1, p.deaths)).toFixed(2), p.bot ? 'BOT' : p.ping].forEach(v => mk('td', 'n mono', String(v), tr));
+      });
+    });
+    return;
+  }
   const tb = mk('table', '', '', el), hr = mk('tr', '', '', tb);
   const cols = mode === 'dm' ? [['SPIELER', ''], ['KILLS', 'n'], ['TODE', 'n'], ['K/D', 'n'], ['PING', 'n']] : [['SPIELER', ''], ['STUFE', ''], ['KILLS', 'n'], ['TODE', 'n'], ['PING', 'n']];
   cols.forEach(c => mk('th', c[1], c[0], hr));
@@ -1512,7 +1586,7 @@ function renderSB() {
     const tr = mk('tr', (p.id === myId ? 'me ' : '') + (p.alive ? '' : 'dead'), '', tb);
     const n = mk('td', '', '', tr); mk('span', 'dot', '', n).style.background = p.css; n.appendChild(document.createTextNode(p.name + (p.alive ? '' : '  ✝')));
     const vals = mode === 'dm' ? [p.kills, p.deaths, (p.kills / Math.max(1, p.deaths)).toFixed(2), p.bot ? 'BOT' : p.ping] : [p.kills, p.deaths, p.bot ? 'BOT' : p.ping];
-    if (mode !== 'dm') mk('td', 'lv', (p.lvl + 1) + ' · ' + WEAPONS[LADDER[p.lvl]].short, tr);
+    if (mode !== 'dm') mk('td', 'lv', (p.lvl + 1) + ' · ' + WEAPONS[LADDER[p.lvl]].short + (p.lvl < LADDER.length - 1 ? '  ' + '●'.repeat(p.prog || 0) + '○'.repeat(Math.max(0, KPL - (p.prog || 0))) : ''), tr);
     vals.forEach(v => mk('td', 'n mono', String(v), tr));
   });
 }
@@ -1555,8 +1629,13 @@ function hud(t, dt) {
   let lead = null;
   for (const p of players.values()) if (!lead || (mode === 'dm' ? p.kills > lead.kills : (p.lvl > lead.lvl || (p.lvl === lead.lvl && p.kills > lead.kills)))) lead = p;
   const mine = players.get(myId), myKills = mine ? mine.kills : 0;
-  setTxt('topbar', (mode === 'dm' ? 'Kills ' + myKills + '/' + dmLimit : 'Stufe ' + (me.lvl + 1) + '/' + LADDER.length) +
+  if (teamMode()) {
+    const myTeam = mine ? mine.team : 0, P = MAP.point, onP = P && me.alive && Math.hypot(me.p[0] - P[0], me.p[2] - P[2]) < P[3];
+    setTxt('topbar', 'Ziel ' + dmLimit + ' Punkte   ·   Du bist Team ' + TEAMS[myTeam].n + (onP ? '   ·   Du stehst auf dem Punkt' : ''));
+    cpHud(myTeam);
+  } else setTxt('topbar', (mode === 'dm' ? 'Kills ' + myKills + '/' + dmLimit : 'Stufe ' + (me.lvl + 1) + '/' + LADDER.length + (me.lvl < LADDER.length - 1 ? ' · ' + me.prog + '/' + KPL + ' Kills' : '')) +
     (lead ? '   ·   Führt: ' + (lead.id === myId ? 'DU' : lead.name) + ' (' + (mode === 'dm' ? lead.kills + ' Kills' : 'Stufe ' + (lead.lvl + 1)) + ')' : ''));
+  setDisp('cpbar', teamMode() ? 'flex' : 'none');
   let tag = '';
   if (me.alive && fl < 0.3) {
     const e = eyePos(), b = basis(me.yaw, me.pitch); let bd = 0.045;
@@ -1565,7 +1644,7 @@ function hud(t, dt) {
       const c = [p.pos[0], p.pos[1] + 1.1, p.pos[2]], dx = c[0] - e[0], dy = c[1] - e[1], dz = c[2] - e[2], d = Math.hypot(dx, dy, dz);
       if (d > 70 || d < 0.1) continue;
       const ang = Math.acos(clamp((dx * b.f[0] + dy * b.f[1] + dz * b.f[2]) / d, -1, 1));
-      if (ang < Math.max(bd, Math.atan(0.5 / d)) && S.losClear(e, c) && !inSmoke(e, c, t)) { bd = ang; tag = p.name + (mode === 'dm' ? '  ·  ' + p.kills + ' Kills' : '  ·  Stufe ' + (p.lvl + 1)); }
+      if (ang < Math.max(bd, Math.atan(0.5 / d)) && S.losClear(e, c) && !inSmoke(e, c, t)) { bd = ang; tag = p.name + (teamMode() ? (mine && p.team === mine.team ? '  ·  Mitspieler' : '  ·  Gegner') : mode === 'dm' ? '  ·  ' + p.kills + ' Kills' : '  ·  Stufe ' + (p.lvl + 1)); }
     }
   }
   if (hc.tag !== tag) { hc.tag = tag; const el = $('tag'); if (tag) el.textContent = tag; el.style.opacity = tag ? 1 : 0; }
@@ -1580,7 +1659,7 @@ function hud(t, dt) {
 
 // ============================================================== Rendern
 function resize() {
-  const dpr0 = window.devicePixelRatio || 1, dpr = SET.q === 'hoch' ? Math.min(dpr0, 2) : SET.q === 'mittel' ? Math.min(dpr0, 1) : 0.75;
+  const dpr0 = window.devicePixelRatio || 1, dpr = SET.q === 'hoch' ? Math.min(dpr0, 1.5) : SET.q === 'mittel' ? Math.min(dpr0, 1) * 0.85 : 0.7;
   const w = Math.floor(innerWidth * dpr), h = Math.floor(innerHeight * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
 }
@@ -1637,6 +1716,8 @@ function vmPose(t) {
   P.x += Math.sin(me.bob) * 0.008 * hs * bobK + me.swayX * (1 - 0.8 * a);
   P.y += Math.abs(Math.cos(me.bob)) * 0.009 * hs * bobK + me.swayY * (1 - 0.8 * a);
   if (!me.onGround) P.y += clamp(me.v[1] * 0.004, -0.03, 0.03) * bobK;
+  const spr = smooth(me.sprintT);
+  if (spr > 0) { P.x -= 0.03 * spr; P.y -= 0.05 * spr + Math.abs(Math.sin(me.bob)) * 0.012 * spr; P.rx -= 0.28 * spr; P.ry += 0.55 * spr; P.rz -= 0.18 * spr; }
   const sw = smooth((t - me.switchT) / 0.3);
   P.y -= (1 - sw) * 0.3; P.rx -= (1 - sw) * 0.7;
   const kick = Math.max(0, 1 - (t - me.fireT) * 10);
@@ -1851,7 +1932,7 @@ function frame() {
   gl.uniform3fv(PW.u.uCam, eye); gl.uniform3fv(PW.u.uSun, sun); gl.uniform3fv(PW.u.uSunCol, env.sunCol); gl.uniform3fv(PW.u.uAmbT, env.ambT); gl.uniform3fv(PW.u.uAmbB, env.ambB);
   gl.uniform3fv(PW.u.uFog, env.fog); gl.uniform1f(PW.u.uFogD, env.fogD); gl.uniform3fv(PW.u.uSkyZ, env.skyZ); gl.uniform3fv(PW.u.uSkyH, env.skyH);
   gl.uniform4f(PW.u.uFlash, fx.lightP[0], fx.lightP[1], fx.lightP[2], flashI);
-  gl.uniform1f(PW.u.uShadowOn, shadows ? 1 : 0); gl.uniform1f(PW.u.uShade, 1); gl.uniform1f(PW.u.uSMS, shadows ? 0.75 / SH.size : 0);
+  gl.uniform1f(PW.u.uShadowOn, shadows ? 1 : 0); gl.uniform1f(PW.u.uShade, 1); gl.uniform1f(PW.u.uSMS, shadows ? 0.75 / SH.size : 0); gl.uniform1f(PW.u.uSMR, shadows ? SH.size : 1); gl.uniform1f(PW.u.uNO, shadows ? 125 / SH.size : 0.06);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, shadows ? SH.tex : null); gl.uniform1i(PW.u.uSM, 0);
   gl.uniformMatrix4fv(PW.u.uM, false, IDENT); gl.uniform1f(PW.u.uEmis, 0); gl.uniform1f(PW.u.uAlpha, 1);
   gl.bindBuffer(gl.ARRAY_BUFFER, worldBuf); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2); gl.enableVertexAttribArray(3);
@@ -1869,6 +1950,23 @@ function frame() {
     drawBox(M.box(m, 0, 0, 0, 0.42, 0.28, 0.42, TMP), [0.95, 0.95, 0.95], 0.35);
     drawBox(M.box(m, 0, 0, 0, 0.3, 0.3, 0.1, TMP), [0.1, 0.75, 0.2], 0.6); drawBox(M.box(m, 0, 0, 0, 0.1, 0.3, 0.3, TMP), [0.1, 0.75, 0.2], 0.6);
     drawBox(M.box(m, 0, 0, 0, 0.44, 0.1, 0.1, TMP), [0.1, 0.75, 0.2], 0.6); drawBox(M.box(m, 0, 0, 0, 0.1, 0.1, 0.44, TMP), [0.1, 0.75, 0.2], 0.6);
+  }
+  if (teamMode() && MAP.point) {
+    const P = MAP.point, own = CP.owner, cc = own >= 0 ? hsl(TEAMS[own].hue, 0.75, 0.5) : [0.85, 0.85, 0.85];
+    const segs = 28;
+    for (let i = 0; i < segs; i++) {
+      const a = i / segs * Math.PI * 2, x = P[0] + Math.cos(a) * P[3], z = P[2] + Math.sin(a) * P[3];
+      const m = M.mul(M.trans(x, P[1] + 0.04, z), M.rotY(-a));
+      drawBox(M.box(m, 0, 0, 0, 0.18, 0.08, P[3] * 2 * Math.PI / segs * 0.62, TMP), cc, 0.8);
+    }
+    // Fortschritt als zweiter Ring in der Farbe des erobernden Teams
+    if (CP.cap >= 0 && CP.prog > 0) {
+      const c2 = hsl(TEAMS[CP.cap].hue, 0.8, 0.55), n = Math.round(segs * CP.prog);
+      for (let i = 0; i < n; i++) { const a = i / segs * Math.PI * 2 - Math.PI / 2, x = P[0] + Math.cos(a) * (P[3] - 0.35), z = P[2] + Math.sin(a) * (P[3] - 0.35);
+        drawBox(M.box(M.mul(M.trans(x, P[1] + 0.06, z), M.rotY(-a)), 0, 0, 0, 0.14, 0.1, P[3] * 2 * Math.PI / segs * 0.55, TMP), c2, 1); }
+    }
+    const hy = P[1] + 8.5 + Math.sin(t * 1.6) * 0.25, mm = M.mul(M.trans(P[0], hy, P[2]), M.mul(M.rotY(t * 0.9), M.rotZ(0.785)));
+    drawBox(M.box(mm, 0, 0, 0, 0.9, 0.9, 0.9, TMP), cc, 0.9);
   }
   for (const n of nades) { const m = M.mul(M.mul(M.trans(n.p[0], n.p[1], n.p[2]), M.rotY(n.spin + t * 9)), M.rotX(t * 7)); drawBox(M.box(m, 0, 0, 0, 0.12, 0.16, 0.12, TMP), NADE_COL[n.k], 0.1); }
   for (const o of objs) {

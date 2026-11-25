@@ -51,6 +51,12 @@
 
   /* Ecken */
   #stats { left: 12px; top: 10px; font-size: 12px; color: var(--dim); }
+  #cpbar { left: 50%; top: 40px; transform: translateX(-50%); display: none; align-items: center; gap: 14px; background: rgba(0, 0, 0, .45); padding: 6px 14px; }
+  #cpbar b { font-size: 26px; min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+  #cpbar .ta { color: #4f8dff; } #cpbar .tb { color: #ff4f45; }
+  .cpmid { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+  .cptrack { width: 220px; height: 8px; background: rgba(255, 255, 255, .15); } #cpfill { display: block; height: 100%; width: 0; background: #888; }
+  #sb h3.sbteam { margin: 0; padding: 9px 18px 4px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
   #topbar { left: 50%; top: 10px; transform: translateX(-50%); text-align: center; font-size: 14px; background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .45), transparent); padding: 6px 60px; white-space: nowrap; }
   #feed { right: 12px; top: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 14px; }
   #feed div { background: rgba(0, 0, 0, .55); padding: 4px 10px; border-left: 3px solid transparent; animation: fin .2s; white-space: nowrap; }
@@ -215,6 +221,7 @@
   <div class="hud" id="tag"></div>
   <div class="hud mono" id="stats"></div>
   <div class="hud" id="topbar"></div>
+  <div class="hud" id="cpbar"><b id="cpa" class="ta">0</b><div class="cpmid"><div class="cptrack"><i id="cpfill"></i></div><span id="cpst">Punkt neutral</span></div><b id="cpb" class="tb">0</b></div>
   <div class="hud" id="feed"></div>
   <div class="hud" id="center"><div id="msg"></div><div id="sub"></div></div>
   <div class="hud" id="reload">NACHLADEN …</div>
@@ -261,7 +268,9 @@
           <span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span><span>Laufen</span>
           <span><kbd>Maus</kbd></span><span>Links schießen · Rechts zielen (Visier)</span>
           <span><kbd>Leertaste</kbd></span><span>Springen</span>
-          <span><kbd>Shift</kbd> / <kbd>C</kbd></span><span>Schleichen (leise) / Ducken</span>
+          <span><kbd>Shift</kbd></span><span>Sprinten (nur vorwärts, ohne Zielen)</span>
+          <span><kbd>Strg</kbd> / <kbd>C</kbd></span><span>Ducken</span>
+          <span><kbd>X</kbd></span><span>Leise gehen</span>
           <span><kbd>R</kbd></span><span>Nachladen</span>
           <span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>Q</kbd></span><span>Primär · Sekundär · Messer · letzte</span>
           <span><kbd>4</kbd> <kbd>5</kbd> <kbd>6</kbd></span><span>HE-, Blend-, Rauchgranate</span>
@@ -274,8 +283,9 @@
         <h3>So läuft's</h3>
         <ul class="rules">
           <li>Vor jedem Spawn wählst du dein <b>Loadout</b>: Waffen, Visiere und Aufsätze.</li>
-          <li><b>Gun Game:</b> jeder Kill bringt die nächste Waffe, ein Messer-Kill auf der letzten Stufe gewinnt.</li>
-          <li><b>Deathmatch:</b> freie Waffenwahl, wer zuerst 25 Kills hat, gewinnt.</li>
+          <li><b>Gun Game:</b> zwei Kills bringen die nächste Waffe, ein Messer-Kill auf der letzten Stufe gewinnt.</li>
+          <li><b>Deathmatch:</b> freie Waffenwahl, wer zuerst 40 Kills hat, gewinnt.</li>
+          <li><b>Punkt erobern:</b> Team Blau gegen Rot. Steht nur dein Team im Ring in der Mitte, wird der Punkt erobert; gehalten bringt er 1 Punkt pro Sekunde – 180 gewinnen.</li>
           <li>Pro Leben: 1 HE-, 1 Blend-, 1 Rauchgranate. Medipacks liegen auf der Karte.</li>
           <li>Zielen über das Visier macht dich genauer, aber langsamer.</li>
           <li>Wer eine Runde gewinnt, öffnet ein <b>Glückspaket</b> mit einem zufälligen Waffen-Skin.</li>
@@ -309,7 +319,7 @@
 <div class="screen" id="pause">
   <div class="card">
     <h2>PAUSE</h2>
-    <div class="row"><button class="go" id="resume">Weiterspielen</button><button id="editlo">Loadout bearbeiten</button></div>
+    <div class="row"><button class="go" id="resume">Weiterspielen</button><button id="editlo">Loadout bearbeiten</button><button id="fullbtn">Vollbild</button></div>
     <h3>Einstellungen</h3>
     <div class="set">
       <span>Maus-Empfindlichkeit</span><input id="sens" type="range" min="0.2" max="3" step="0.05"><span id="sensv" class="mono"></span>
