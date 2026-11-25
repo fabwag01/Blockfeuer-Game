@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>BLOCKFEUER</title>
+<style>
+  :root { --acc: #ff9a1f; --acc2: #ffd24a; --panel: rgba(16, 19, 24, .9); --line: rgba(255, 255, 255, .12); --txt: #eef1f4; --dim: #9aa3ad; --red: #ff4b3e; --green: #7be06a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0e11; color: var(--txt);
+    font-family: "Bahnschrift", "DIN Alternate", "Roboto Condensed", "Segoe UI", "Helvetica Neue", Arial, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); }
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+  .mono { font-variant-numeric: tabular-nums; }
+
+  /* Fadenkreuz + Absehen */
+  #cross { left: 50%; top: 50%; --gap: 6px; transition: opacity .08s; }
+  #cross i { position: absolute; background: #6dff6d; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); }
+  #cross .l { width: 9px; height: 2px; right: var(--gap); top: -1px; }
+  #cross .r { width: 9px; height: 2px; left: var(--gap); top: -1px; }
+  #cross .u { width: 2px; height: 9px; bottom: var(--gap); left: -1px; }
+  #cross .d { width: 2px; height: 9px; top: var(--gap); left: -1px; }
+  #rdot { left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: #ff3b2f; box-shadow: 0 0 6px 2px rgba(255, 40, 30, .7); opacity: 0; }
+  #holo { left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%; border: 2px solid rgba(255, 70, 50, .9); box-shadow: 0 0 6px rgba(255, 40, 30, .6), inset 0 0 6px rgba(255, 40, 30, .5); opacity: 0; }
+  #holo:after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: #ff3b2f; }
+  #hit { left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; opacity: 0; transform: rotate(45deg); }
+  #hit:before, #hit:after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
+  #hit:before { left: 14px; top: 0; width: 2px; height: 30px; -webkit-mask: linear-gradient(#000 35%, transparent 35% 65%, #000 65%); mask: linear-gradient(#000 35%, transparent 35% 65%, #000 65%); }
+  #hit:after { top: 14px; left: 0; height: 2px; width: 30px; -webkit-mask: linear-gradient(90deg, #000 35%, transparent 35% 65%, #000 65%); mask: linear-gradient(90deg, #000 35%, transparent 35% 65%, #000 65%); }
+  #hit.hs:before, #hit.hs:after { background: var(--red); }
+  #dmgnum { left: 50%; top: 50%; margin: -46px 0 0 26px; font-size: 20px; font-weight: 700; color: #fff; opacity: 0; }
+  #tag { left: 50%; top: 50%; margin-top: 34px; transform: translateX(-50%); font-size: 15px; color: #ffd9d4; letter-spacing: .04em; opacity: 0; transition: opacity .12s; white-space: nowrap; }
+
+  /* Overlays */
+  #scope, #acog { inset: 0; display: none; }
+  #scope { background: radial-gradient(circle at 50% 50%, transparent 0, transparent calc(46vh - 2px), #000 46vh); }
+  #scope:before, #scope:after { content: ""; position: absolute; background: #000; }
+  #scope:before { left: 0; right: 0; top: 50%; height: 1px; }
+  #scope:after { top: 0; bottom: 0; left: 50%; width: 1px; }
+  #acog { background: radial-gradient(circle at 50% 50%, transparent 0, transparent calc(40vh - 2px), rgba(0,0,0,.92) 40vh, #000 52vh); }
+  #acog i { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin-left: -9px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 14px solid #ff4b30; filter: drop-shadow(0 0 3px rgba(255, 60, 40, .8)); }
+  #acog b { position: absolute; left: 50%; top: calc(50% + 18px); width: 2px; height: 22vh; margin-left: -1px; background: rgba(0, 0, 0, .8); }
+  #flash { inset: 0; background: #fff; opacity: 0; }
+  #smokeov { inset: 0; background: #b9bcb8; opacity: 0; }
+  #vign { inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(210, 20, 10, .7) 100%); }
+  #lens { inset: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .35) 100%); }
+  #dmgdir { left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+  #dmgdir:before { content: ""; position: absolute; left: -70px; top: -190px; width: 140px; height: 40px; border-top: 7px solid rgba(255, 50, 30, .95); border-radius: 50% 50% 0 0 / 100% 100% 0 0; }
+
+  /* Ecken */
+  #stats { left: 12px; top: 10px; font-size: 12px; color: var(--dim); }
+  #topbar { left: 50%; top: 10px; transform: translateX(-50%); text-align: center; font-size: 14px; background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .45), transparent); padding: 6px 60px; white-space: nowrap; }
+  #feed { right: 12px; top: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 14px; }
+  #feed div { background: rgba(0, 0, 0, .55); padding: 4px 10px; border-left: 3px solid transparent; animation: fin .2s; white-space: nowrap; }
+  #feed div.me { border-left-color: var(--acc); background: rgba(60, 30, 0, .7); }
+  #feed .w { color: var(--acc2); margin: 0 7px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  #feed .hs { color: var(--red); margin-right: 5px; font-weight: 700; }
+  @keyframes fin { from { opacity: 0; transform: translateX(20px); } }
+
+  #bl { left: 22px; bottom: 20px; }
+  #hpnum { font-size: 50px; font-weight: 700; line-height: 1; }
+  #hpnum small { font-size: 15px; color: var(--dim); margin-left: 6px; font-weight: 400; letter-spacing: .1em; }
+  #hpbar { width: 210px; height: 6px; background: rgba(0, 0, 0, .5); margin-top: 6px; }
+  #hpbar i { display: block; height: 100%; width: 100%; background: var(--green); transition: width .15s, background .15s; }
+  #br { right: 22px; bottom: 20px; text-align: right; }
+  #ammo { font-size: 50px; font-weight: 700; line-height: 1; }
+  #ammo small { font-size: 18px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+  #wname { font-size: 15px; letter-spacing: .12em; text-transform: uppercase; color: var(--acc2); margin-top: 4px; }
+  #watt { font-size: 11px; color: var(--dim); margin-top: 2px; letter-spacing: .04em; }
+  #nades { margin-top: 10px; display: flex; gap: 6px; justify-content: flex-end; font-size: 12px; }
+  #nades span { padding: 3px 7px; background: rgba(0, 0, 0, .5); border: 1px solid var(--line); color: var(--dim); }
+  #nades span b { color: var(--txt); margin-right: 4px; }
+  #nades span.sel { border-color: var(--acc); color: #fff; }
+  #nades span.empty { opacity: .3; }
+
+  #ladder { left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 3px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+  #ladder span { padding: 4px 8px; background: rgba(0, 0, 0, .5); color: var(--dim); border-bottom: 2px solid transparent; }
+  #ladder span.done { color: rgba(255, 255, 255, .35); text-decoration: line-through; }
+  #ladder span.cur { background: var(--acc); color: #1b1203; font-weight: 700; border-bottom-color: #fff; }
+
+  #center { left: 50%; top: 27%; transform: translateX(-50%); text-align: center; }
+  #msg { font-size: 30px; font-weight: 700; letter-spacing: .06em; opacity: 0; text-transform: uppercase; }
+  #msg small { display: block; font-size: 15px; font-weight: 400; color: var(--acc2); letter-spacing: .14em; margin-top: 4px; }
+  #sub { font-size: 16px; color: var(--dim); margin-top: 8px; min-height: 20px; }
+  #reload { left: 50%; top: 58%; transform: translateX(-50%); font-size: 13px; letter-spacing: .2em; color: var(--acc2); display: none; }
+
+  #chatlog { left: 22px; bottom: 120px; width: 380px; font-size: 14px; display: flex; flex-direction: column; gap: 2px; }
+  #chatlog div { background: rgba(0, 0, 0, .4); padding: 2px 8px; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
+  #chatlog b { color: var(--acc2); font-weight: 600; }
+  #chatin { position: fixed; left: 22px; bottom: 90px; width: 380px; display: none; background: rgba(0, 0, 0, .75); border: 1px solid var(--acc); color: #fff; padding: 6px 8px; font: inherit; font-size: 14px; outline: none; pointer-events: auto; z-index: 6; }
+
+  /* Scoreboard */
+  #sb { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(680px, 92vw); background: var(--panel); border: 1px solid var(--line); display: none; text-shadow: none; }
+  #sb h2 { margin: 0; padding: 12px 18px; font-size: 15px; letter-spacing: .2em; background: rgba(255, 154, 31, .14); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  #sb h2 span { color: var(--dim); letter-spacing: .05em; font-weight: 400; }
+  #sb table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  #sb th { text-align: left; font-size: 11px; letter-spacing: .14em; color: var(--dim); font-weight: 400; padding: 8px 18px; }
+  #sb td { padding: 7px 18px; border-top: 1px solid rgba(255, 255, 255, .06); }
+  #sb tr.me td { background: rgba(255, 154, 31, .16); }
+  #sb tr.dead td { color: var(--dim); }
+  #sb td.n { text-align: right; width: 70px; } #sb th.n { text-align: right; }
+  #sb .dot { display: inline-block; width: 9px; height: 9px; margin-right: 9px; }
+  #sb .lv { color: var(--acc2); }
+
+  #win { inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; background: rgba(0, 0, 0, .6); text-align: center; }
+  #win h1 { font-size: 64px; margin: 0; letter-spacing: .04em; color: var(--acc2); }
+  #win p { font-size: 18px; color: var(--txt); margin: 8px 0; }
+  #win ol { list-style: none; padding: 0; margin: 14px 0; font-size: 17px; }
+
+  /* Menüs */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 40%, rgba(30, 24, 16, .35), rgba(8, 9, 11, .8)); z-index: 5; }
+  .screen.on { display: flex; }
+  .card { width: min(880px, 94vw); max-height: 94vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--acc); padding: 28px 32px; }
+  h1.logo { margin: 0; font-size: 54px; letter-spacing: .08em; line-height: 1; }
+  h1.logo span { color: var(--acc); }
+  .tagline { color: var(--dim); letter-spacing: .28em; font-size: 12px; margin: 6px 0 22px; text-transform: uppercase; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  input[type=text] { background: #0c0e11; border: 1px solid var(--line); color: #fff; padding: 12px 14px; font: inherit; font-size: 18px; flex: 1; min-width: 180px; outline: none; user-select: text; -webkit-user-select: text; }
+  input[type=text]:focus { border-color: var(--acc); }
+  button { font: inherit; cursor: pointer; background: #262b33; color: #fff; border: 1px solid var(--line); padding: 10px 16px; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+  button:hover { background: #323943; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.go { background: var(--acc); color: #1b1203; border-color: var(--acc); font-weight: 700; font-size: 18px; padding: 12px 34px; }
+  button.go:hover { background: var(--acc2); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 24px; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: .22em; color: var(--acc2); font-weight: 600; text-transform: uppercase; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 14px; color: var(--dim); }
+  kbd { font: inherit; font-size: 12px; background: #0c0e11; border: 1px solid var(--line); border-bottom-width: 2px; padding: 1px 7px; color: #fff; white-space: nowrap; }
+  .rules { font-size: 14px; color: var(--dim); line-height: 1.5; margin: 0; padding-left: 18px; }
+  .rules b { color: var(--txt); }
+  .link { margin-top: 22px; padding: 12px 14px; background: #0c0e11; border: 1px dashed var(--line); font-size: 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .link code { color: var(--acc2); font-size: 15px; user-select: all; -webkit-user-select: all; flex: 1; overflow-wrap: anywhere; }
+  #err { color: var(--red); margin-top: 12px; min-height: 20px; font-size: 14px; }
+  #p2p .row { margin-top: 12px; } .joinrow input { flex: 0 0 150px; min-width: 0; text-transform: lowercase; letter-spacing: .12em; }
+  .dim { color: var(--dim); font-size: 14px; } #netinfo { margin-top: 10px; min-height: 18px; }
+  #loadbar { position: fixed; left: 0; bottom: 0; height: 3px; background: var(--acc); width: 0; transition: width .2s, opacity .6s; z-index: 50; }
+  .set { display: grid; grid-template-columns: 160px 1fr 54px; gap: 10px 12px; align-items: center; font-size: 14px; color: var(--dim); margin-top: 6px; }
+  input[type=range] { width: 100%; accent-color: var(--acc); }
+  select { font: inherit; background: #0c0e11; color: #fff; border: 1px solid var(--line); padding: 6px 8px; }
+  #pause .card { width: min(620px, 94vw); }
+  #pause .set .row { flex-wrap: nowrap; gap: 8px; } #pause .set button { padding: 7px 10px; font-size: 12px; }
+  #pause h2 { margin: 0 0 16px; letter-spacing: .2em; font-size: 20px; }
+  #pause h3 { margin-top: 22px; }
+
+  /* Loadout */
+  #loadout { justify-content: flex-start; background: linear-gradient(90deg, rgba(10, 12, 15, .95) 0, rgba(10, 12, 15, .9) 50%, rgba(10, 12, 15, .25) 72%, rgba(10, 12, 15, .05) 100%); }
+  .lo { width: min(660px, 100vw); height: 100vh; overflow-y: auto; padding: 24px 30px 0; display: flex; flex-direction: column; }
+  .lo h2 { margin: 0; font-size: 26px; letter-spacing: .14em; }
+  .lo .sub { color: var(--dim); font-size: 13px; margin: 4px 0 16px; }
+  .lo h3 { margin: 16px 0 8px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+  .wcard { background: #1b1f25; border: 1px solid var(--line); padding: 8px 10px; text-align: left; text-transform: none; letter-spacing: .02em; }
+  .wcard b { display: block; font-size: 14px; }
+  .wcard small { color: var(--dim); font-size: 11px; }
+  .wcard.sel { border-color: var(--acc); background: rgba(255, 154, 31, .16); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chips button { padding: 5px 10px; font-size: 12px; }
+  .chips button.sel { background: var(--acc); color: #1b1203; border-color: var(--acc); font-weight: 700; }
+  .attrow { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: start; margin: 9px 0; }
+  .attrow > span { font-size: 12px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; padding-top: 8px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 5px; }
+  .opt { text-transform: none; letter-spacing: .01em; font-size: 13px; padding: 7px 11px; }
+  .opt.sel { background: rgba(255, 154, 31, .2); border-color: var(--acc); color: #fff; }
+  .attdesc { font-size: 12px; color: var(--dim); margin-top: 4px; min-height: 15px; }
+  .bars { display: grid; grid-template-columns: 92px 1fr 52px; gap: 6px 10px; align-items: center; font-size: 12px; color: var(--dim); }
+  .bar { height: 7px; background: rgba(255, 255, 255, .08); position: relative; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--acc2); }
+  .bar u { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255, 255, 255, .25); }
+  .lofoot { position: sticky; bottom: 0; margin-top: auto; padding: 16px 0 22px; background: linear-gradient(transparent, rgba(10, 12, 15, .96) 30%); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  #locount { color: var(--dim); font-size: 13px; }
+  #lopreview { right: 6vw; bottom: 16vh; text-align: right; z-index: 6; }
+  #lopreview b { display: block; font-size: 26px; letter-spacing: .08em; text-transform: uppercase; }
+  #lopreview span { color: var(--dim); font-size: 13px; }
+  @media (max-width: 900px) { #lopreview { display: none; } }
+  .skinopt { display: inline-flex; align-items: center; gap: 7px; border-bottom-width: 3px; }
+  .skinopt .sw { display: inline-block; width: 22px; height: 14px; border: 1px solid rgba(255, 255, 255, .25); }
+
+  /* Glückspaket */
+  #pack { align-items: flex-end; background: linear-gradient(rgba(8, 9, 11, .15) 0, rgba(8, 9, 11, .35) 38%, rgba(8, 9, 11, .94) 58%); z-index: 7; }
+  .pk { width: 100%; padding: 0 0 6vh; text-align: center; }
+  .pk h2 { margin: 0; font-size: 34px; letter-spacing: .2em; color: var(--acc2); text-shadow: 0 0 18px rgba(255, 190, 40, .45); }
+  .pk .sub { color: var(--dim); margin: 6px 0 18px; font-size: 15px; }
+  #reelwrap { position: relative; width: min(1100px, 96vw); height: 154px; margin: 0 auto; overflow: hidden; background: rgba(0, 0, 0, .45); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    -webkit-mask: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+  #reelwrap:after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--acc2); box-shadow: 0 0 12px var(--acc2); }
+  #reel { display: flex; gap: 6px; padding: 10px 0; will-change: transform; }
+  .pcard { flex: 0 0 132px; height: 132px; background: linear-gradient(180deg, #23272e, #181b20); border-bottom: 4px solid var(--rc); padding: 8px; text-align: left; box-shadow: inset 0 -30px 40px -30px var(--rc); }
+  .pcard .sw { height: 64px; margin-bottom: 8px; border: 1px solid rgba(255, 255, 255, .12); }
+  .pcard b { display: block; font-size: 14px; }
+  .pcard small { color: var(--dim); font-size: 12px; }
+  .pcard.won { outline: 2px solid var(--rc); box-shadow: 0 0 24px var(--rc); }
+  #pkresult { font-size: 30px; font-weight: 700; letter-spacing: .06em; min-height: 40px; margin: 18px 0 4px; text-transform: uppercase; }
+  .pk .row { justify-content: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="hud" id="lens"></div>
+  <div class="hud" id="scope"></div>
+  <div class="hud" id="acog"><b></b><i></i></div>
+  <div class="hud" id="smokeov"></div>
+  <div class="hud" id="vign"></div>
+  <div class="hud" id="flash"></div>
+  <div class="hud" id="dmgdir"></div>
+  <div class="hud" id="cross"><i class="l"></i><i class="r"></i><i class="u"></i><i class="d"></i></div>
+  <div class="hud" id="rdot"></div>
+  <div class="hud" id="holo"></div>
+  <div class="hud" id="hit"></div>
+  <div class="hud mono" id="dmgnum"></div>
+  <div class="hud" id="tag"></div>
+  <div class="hud mono" id="stats"></div>
+  <div class="hud" id="topbar"></div>
+  <div class="hud" id="feed"></div>
+  <div class="hud" id="center"><div id="msg"></div><div id="sub"></div></div>
+  <div class="hud" id="reload">NACHLADEN …</div>
+  <div class="hud" id="chatlog"></div>
+  <div class="hud" id="bl"><div id="hpnum" class="mono">100<small>HP</small></div><div id="hpbar"><i></i></div></div>
+  <div class="hud" id="br">
+    <div id="ammo" class="mono">15<small>/ ∞</small></div>
+    <div id="wname"></div>
+    <div id="watt"></div>
+    <div id="nades"><span><b>4</b>HE</span><span><b>5</b>Blend</span><span><b>6</b>Rauch</span></div>
+  </div>
+  <div class="hud" id="ladder"></div>
+  <div class="hud" id="sb"></div>
+  <div class="hud" id="win"></div>
+</div>
+<input id="chatin" type="text" maxlength="120" placeholder="Nachricht … (Enter = senden)">
+
+<div id="loadbar"></div>
+<div class="screen on" id="menu">
+  <div class="card">
+    <h1 class="logo">BLOCK<span>FEUER</span></h1>
+    <div class="tagline" id="tagline">Gun Game · Deathmatch · Im Browser</div>
+    <div class="row">
+      <input id="name" type="text" maxlength="16" placeholder="Dein Name" autocomplete="off">
+      <button class="go" id="play">Spielen</button>
+    </div>
+    <div id="p2p" style="display:none">
+      <div class="row">
+        <button class="go" id="hostbtn">Spiel erstellen</button>
+        <button id="solobtn">Allein gegen Bots</button>
+      </div>
+      <div class="row joinrow">
+        <span class="dim">oder Code eines Freundes:</span>
+        <input id="joincode" type="text" maxlength="12" placeholder="z. B. k7m2x" autocomplete="off" spellcheck="false">
+        <button id="joinbtn">Beitreten</button>
+      </div>
+    </div>
+    <div id="netinfo" class="dim"></div>
+    <div id="err"></div>
+    <div class="grid">
+      <div>
+        <h3>Steuerung</h3>
+        <div class="keys">
+          <span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span><span>Laufen</span>
+          <span><kbd>Maus</kbd></span><span>Links schießen · Rechts zielen (Visier)</span>
+          <span><kbd>Leertaste</kbd></span><span>Springen</span>
+          <span><kbd>Shift</kbd> / <kbd>C</kbd></span><span>Schleichen (leise) / Ducken</span>
+          <span><kbd>R</kbd></span><span>Nachladen</span>
+          <span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>Q</kbd></span><span>Primär · Sekundär · Messer · letzte</span>
+          <span><kbd>4</kbd> <kbd>5</kbd> <kbd>6</kbd></span><span>HE-, Blend-, Rauchgranate</span>
+          <span><kbd>Tab</kbd></span><span>Scoreboard</span>
+          <span><kbd>Enter</kbd></span><span>Chat</span>
+          <span><kbd>Esc</kbd></span><span>Menü (Karte, Modus, Bots, Grafik)</span>
+        </div>
+      </div>
+      <div>
+        <h3>So läuft's</h3>
+        <ul class="rules">
+          <li>Vor jedem Spawn wählst du dein <b>Loadout</b>: Waffen, Visiere und Aufsätze.</li>
+          <li><b>Gun Game:</b> jeder Kill bringt die nächste Waffe, ein Messer-Kill auf der letzten Stufe gewinnt.</li>
+          <li><b>Deathmatch:</b> freie Waffenwahl, wer zuerst 25 Kills hat, gewinnt.</li>
+          <li>Pro Leben: 1 HE-, 1 Blend-, 1 Rauchgranate. Medipacks liegen auf der Karte.</li>
+          <li>Zielen über das Visier macht dich genauer, aber langsamer.</li>
+          <li>Wer eine Runde gewinnt, öffnet ein <b>Glückspaket</b> mit einem zufälligen Waffen-Skin.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="link" id="linkbox"><span>Link für Freunde:</span><code id="invite"></code><button id="copy">Kopieren</button></div>
+  </div>
+</div>
+
+<div class="screen" id="loadout"><div class="lo">
+  <h2>LOADOUT</h2>
+  <div class="sub" id="losub"></div>
+  <div id="lobody"></div>
+  <div class="lofoot">
+    <button class="go" id="spawn">Spawnen</button>
+    <button id="loall">Aufsätze auf alle Waffen</button>
+    <span id="locount"></span>
+  </div>
+</div></div>
+<div class="hud" id="lopreview" style="display:none"><b id="lpname"></b><span id="lpatt"></span></div>
+
+<div class="screen" id="pack"><div class="pk">
+  <h2>GLÜCKSPAKET</h2>
+  <div class="sub" id="pksub"></div>
+  <div id="reelwrap"><div id="reel"></div></div>
+  <div id="pkresult"></div>
+  <div class="row"><button class="go" id="pkopen">Öffnen</button><button class="go" id="pkequip">Ausrüsten</button><button id="pkclose">Weiter</button></div>
+</div></div>
+
+<div class="screen" id="pause">
+  <div class="card">
+    <h2>PAUSE</h2>
+    <div class="row"><button class="go" id="resume">Weiterspielen</button><button id="editlo">Loadout bearbeiten</button></div>
+    <h3>Einstellungen</h3>
+    <div class="set">
+      <span>Maus-Empfindlichkeit</span><input id="sens" type="range" min="0.2" max="3" step="0.05"><span id="sensv" class="mono"></span>
+      <span>Sichtfeld</span><input id="fov" type="range" min="60" max="100" step="1"><span id="fovv" class="mono"></span>
+      <span>Lautstärke</span><input id="vol" type="range" min="0" max="1" step="0.05"><span id="volv" class="mono"></span>
+      <span>Grafik</span><select id="qual"><option value="hoch">Hoch (Schatten)</option><option value="mittel">Mittel</option><option value="niedrig">Niedrig (schnell)</option></select><span></span>
+      <span>Zielen (Rechtsklick)</span><select id="adsmode"><option value="halten">Halten</option><option value="umschalten">Umschalten</option></select><span></span>
+    </div>
+    <h3>Spiel</h3>
+    <div class="set">
+      <span>Karte</span><select id="mapsel"></select><span></span>
+      <span>Modus</span><select id="modesel"></select><span></span>
+      <span></span><button id="applycfg">Neue Runde mit dieser Auswahl</button><span></span>
+      <span>Bots</span><span class="row"><button id="botadd">+ Bot</button><button id="botdel">− Bot</button>
+        <select id="skill"><option value="0">Leicht</option><option value="1">Mittel</option><option value="2">Schwer</option></select></span><span id="botn" class="mono"></span>
+    </div>
+    <div class="link" id="linkbox2"><span>Link für Freunde:</span><code id="invite2"></code><button id="copy2">Kopieren</button><button id="online2" style="display:none">Online stellen</button></div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script src="host.js"></script>
+<script src="net.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

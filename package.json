@@ -1,0 +1,9 @@
+{
+  "name": "blockfeuer",
+  "version": "1.0.0",
+  "description": "Gun-Game-Shooter im Browser (Multiplayer ueber GitHub Pages/WebRTC oder eigenen Node-Server)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "tunnel": "node server.js --tunnel" },
+  "engines": { "node": ">=18" },
+  "private": true
+}
